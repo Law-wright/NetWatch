@@ -12,6 +12,10 @@ SIMULATED_BANNER = (
     "Simulated data. These packets are fictional demonstration records, "
     "not a capture from this computer or any live network."
 )
+IMPORTED_BANNER = (
+    "Offline capture. These rows are packet metadata parsed locally from a file "
+    "you uploaded. Payloads are not stored, and NetWatch is not capturing live traffic."
+)
 
 PROTOCOL_COLORS = {
     "TCP": "#4C8DFF",
@@ -61,10 +65,22 @@ def inject_styles() -> None:
     )
 
 
+def is_imported_capture() -> bool:
+    """True when the session table came from an uploaded capture."""
+    return st.session_state.get("data_source") == "imported"
+
+
+def active_banner() -> str:
+    """Return the warning that matches the packet table currently loaded."""
+    if is_imported_capture():
+        return IMPORTED_BANNER
+    return SIMULATED_BANNER
+
+
 def render_banner() -> None:
-    """Show the simulated-data warning above the active page."""
+    """Show the data-origin warning above the active page."""
     st.markdown(
-        f'<div class="netwatch-banner">{SIMULATED_BANNER}</div>',
+        f'<div class="netwatch-banner">{active_banner()}</div>',
         unsafe_allow_html=True,
     )
 

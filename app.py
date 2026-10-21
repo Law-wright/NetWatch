@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
+from typing import Any
 
 import streamlit as st
 
 from core.filters import packet_summary
+from core.packet_analyzer import capture_label, describe_import, parse_pcap_bytes
 from core.sample_data import generate_packet_frame
-from dashboard.common import SIMULATED_BANNER, inject_styles, render_banner
+from dashboard.common import active_banner, inject_styles, is_imported_capture, render_banner
 
 LOGGER = logging.getLogger("netwatch")
 
@@ -31,18 +34,111 @@ def configure_logging() -> None:
     )
 
 
-def load_packets() -> None:
-    """Load the seeded fictional set once per browser session."""
-    if "packets" in st.session_state:
-        return
+def _use_simulated_packets() -> None:
+    """Replace the session packet table with the seeded fictional set."""
     frame = generate_packet_frame()
     st.session_state.packets = frame
     st.session_state.data_source = "simulated"
+    st.session_state.source_name = "Fictional demonstration set"
+    st.session_state.import_note = None
     LOGGER.info("Loaded %s simulated packets", len(frame))
 
 
+def load_packets() -> None:
+    """Load the seeded fictional set once per browser session."""
+    if "packets" not in st.session_state:
+        _use_simulated_packets()
+    st.session_state.setdefault("data_source", "simulated")
+    st.session_state.setdefault("source_name", "Fictional demonstration set")
+    st.session_state.setdefault("import_note", None)
+    st.session_state.setdefault("upload_generation", 0)
+    st.session_state.setdefault("pcap_file_id", None)
+    st.session_state.setdefault("pcap_error", None)
+
+
+def _ingest_capture(upload: Any) -> None:
+    """Parse one uploaded capture when its contents have not been seen this session."""
+    file_id = getattr(upload, "file_id", None)
+    if isinstance(file_id, str) and file_id == st.session_state.get("pcap_file_id"):
+        return
+    raw = upload.getvalue()
+    if isinstance(raw, memoryview):
+        raw = raw.tobytes()
+    elif isinstance(raw, bytearray):
+        raw = bytes(raw)
+    if not isinstance(raw, bytes):
+        st.session_state.pcap_error = "The capture must be provided as bytes."
+        if isinstance(file_id, str) and file_id:
+            st.session_state.pcap_file_id = file_id
+        LOGGER.info("Rejected uploaded capture: The capture must be provided as bytes.")
+        return
+    token = file_id if isinstance(file_id, str) and file_id else hashlib.sha256(raw).hexdigest()
+    if token == st.session_state.get("pcap_file_id"):
+        return
+    result = parse_pcap_bytes(raw)
+    st.session_state.pcap_file_id = token
+    if result.error:
+        st.session_state.pcap_error = result.error
+        LOGGER.info("Rejected uploaded capture: %s", result.error)
+        return
+    st.session_state.pcap_error = None
+    st.session_state.packets = result.frame
+    st.session_state.data_source = "imported"
+    st.session_state.source_name = capture_label(getattr(upload, "name", ""))
+    st.session_state.import_note = describe_import(result)
+    LOGGER.info(
+        "Imported capture accepted %s skipped %s truncated %s incomplete %s",
+        result.accepted,
+        result.skipped,
+        result.truncated,
+        result.incomplete,
+    )
+
+
+def _render_sidebar() -> None:
+    """Show the packet source, the capture uploader, and the way back to fictional data."""
+    with st.sidebar:
+        st.markdown("### NetWatch")
+        st.caption("Local-only security monitoring")
+        st.caption(
+            "Upload a saved PCAP or PCAPNG to inspect it here. "
+            "Live capture is off. Windows events and detection come in later phases."
+        )
+        generation = int(st.session_state.get("upload_generation", 0))
+        upload = st.file_uploader(
+            "Offline capture",
+            type=["pcap", "pcapng", "cap"],
+            help=(
+                "A saved PCAP or PCAPNG, up to 50 MB. "
+                "Parsed on this computer. Payload bytes are discarded."
+            ),
+            key=f"pcap_upload_{generation}",
+        )
+        if upload is not None:
+            _ingest_capture(upload)
+        summary = packet_summary(st.session_state.packets)
+        st.metric("Packets loaded", f"{summary.total_packets:,}")
+        if is_imported_capture():
+            st.caption(f"Source: {st.session_state.source_name}")
+        else:
+            st.caption("Source: fictional demonstration set")
+        note = st.session_state.get("import_note")
+        if isinstance(note, str) and note:
+            st.caption(note)
+        st.caption(active_banner())
+        error = st.session_state.get("pcap_error")
+        if isinstance(error, str) and error:
+            st.error(error)
+        if is_imported_capture() and st.button("Use simulated data"):
+            _use_simulated_packets()
+            st.session_state.upload_generation = generation + 1
+            st.session_state.pcap_file_id = None
+            st.session_state.pcap_error = None
+            st.rerun()
+
+
 def main() -> None:
-    """Render the banner, sidebar, and page navigation."""
+    """Render the sidebar, banner, and page navigation."""
     st.set_page_config(
         page_title="NetWatch",
         layout="wide",
@@ -51,19 +147,8 @@ def main() -> None:
     configure_logging()
     load_packets()
     inject_styles()
+    _render_sidebar()
     render_banner()
-
-    summary = packet_summary(st.session_state.packets)
-    with st.sidebar:
-        st.markdown("### NetWatch")
-        st.caption("Local-only security monitoring")
-        st.metric("Packets loaded", f"{summary.total_packets:,}")
-        st.caption("Source: fictional demonstration set")
-        st.caption(SIMULATED_BANNER)
-        st.caption(
-            "Phase 1 shows simulated network traffic. "
-            "Windows event monitoring and threat detection come in later phases."
-        )
 
     pages = [
         st.Page("dashboard/overview.py", title="Overview", default=True),

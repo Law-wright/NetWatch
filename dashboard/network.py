@@ -1,4 +1,4 @@
-"""Filterable network-traffic view for the simulated packet set."""
+"""Filterable network-traffic view for the loaded packet table."""
 
 from __future__ import annotations
 
@@ -10,7 +10,13 @@ import streamlit as st
 
 from core.filters import filter_packets, protocol_counts, top_ips, top_ports
 from core.models import PROTOCOLS
-from dashboard.common import PROTOCOL_COLORS, display_packets, require_packets, style_chart
+from dashboard.common import (
+    PROTOCOL_COLORS,
+    display_packets,
+    is_imported_capture,
+    require_packets,
+    style_chart,
+)
 
 
 def _slider_bounds(frame: pd.DataFrame) -> tuple[datetime, datetime]:
@@ -27,11 +33,17 @@ def _slider_bounds(frame: pd.DataFrame) -> tuple[datetime, datetime]:
 
 
 st.header("Network Traffic")
-st.caption(
-    "Addresses are drawn from RFC 5737 documentation ranges and RFC 1918 private "
-    "ranges. Destination ports such as 80, 443, 53, 22, 445, and 3389 are part of "
-    "the fiction, not observations of this computer."
-)
+if is_imported_capture():
+    st.caption(
+        "Filters apply to metadata from the uploaded capture. "
+        "The table does not include payload bytes."
+    )
+else:
+    st.caption(
+        "Addresses are drawn from RFC 5737 documentation ranges and RFC 1918 private "
+        "ranges. Destination ports such as 80, 443, 53, 22, 445, and 3389 are part of "
+        "the fiction, not observations of this computer."
+    )
 
 source = require_packets()
 if source.empty:
@@ -137,5 +149,8 @@ else:
     )
 
 st.subheader("Packet metadata")
-st.caption("Every row in this phase is simulated. The table lists metadata only.")
+if is_imported_capture():
+    st.caption("Metadata from the uploaded capture. Payload bytes are not stored.")
+else:
+    st.caption("Every row in this view is simulated. The table lists metadata only.")
 st.dataframe(display_packets(filtered), width="stretch", hide_index=True)

@@ -1,4 +1,4 @@
-"""Overview of the full simulated packet set."""
+"""Overview of the packet table currently loaded."""
 
 from __future__ import annotations
 
@@ -6,13 +6,22 @@ import plotly.express as px
 import streamlit as st
 
 from core.filters import packet_summary, packets_over_time
-from dashboard.common import require_packets, style_chart
+from dashboard.common import is_imported_capture, require_packets, style_chart
 
 st.header("Overview")
-st.caption(
-    "Counts describe the full fictional set. Network Traffic is where filters "
-    "narrow that set. Windows events and detection alerts are not part of this phase."
-)
+if is_imported_capture():
+    st.caption(
+        "Counts describe the uploaded capture. Network Traffic is where filters "
+        "narrow it. Windows events and detection alerts come in later phases."
+    )
+else:
+    st.caption(
+        "Counts describe the full fictional set. Network Traffic is where filters "
+        "narrow that set. Windows events and detection alerts come in later phases."
+    )
+note = st.session_state.get("import_note")
+if isinstance(note, str) and note:
+    st.caption(note)
 
 frame = require_packets()
 summary = packet_summary(frame)

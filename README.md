@@ -1,10 +1,10 @@
 # NetWatch
 
-NetWatch is a local network security monitoring project. Phase 1 is a dark Streamlit dashboard that summarizes a seeded set of fictional packet metadata. Later phases will add offline PCAP analysis, Windows security events, SQLite storage, and rule-based detection.
+NetWatch is a local network security monitoring project. It is a dark Streamlit dashboard for a seeded set of fictional packet metadata, and it can also summarize a PCAP or PCAPNG file you upload. Later phases will add Windows security events, SQLite storage, and rule-based detection.
 
 This is a portfolio and learning project. It is not a production IDS, and it does not capture live traffic.
 
-## Phase 1 status
+## Current status
 
 Implemented now:
 
@@ -12,12 +12,13 @@ Implemented now:
 - Overview metrics and a packets-over-time chart
 - Protocol, top address, and port charts
 - Filters for IP address, protocol, port, and time
-- A metadata table with a visible simulated-data label
-- Unit tests for the generator, record contracts, and filters
+- A metadata table with a visible data-origin label
+- Offline PCAP and PCAPNG upload, parsed with Scapy into that same table
+- A 50 MB upload cap and a 100,000 packet cap
+- Unit tests for the generator, record contracts, filters, and capture parser
 
 Not implemented yet:
 
-- PCAP upload and Scapy parsing (Phase 2)
 - Windows and Sysmon event ingestion (Phase 3)
 - SQLite persistence (Phase 3)
 - Detection rules and alerts (Phase 4)
@@ -25,9 +26,17 @@ Not implemented yet:
 
 ## Simulated data
 
-Every packet in this phase is generated in memory with a fixed random seed. Addresses come from [RFC 5737](https://www.rfc-editor.org/rfc/rfc5737) documentation ranges and [RFC 1918](https://www.rfc-editor.org/rfc/rfc1918) private ranges. The dashboard banner states that the rows are fictional. They are not a capture from this computer or any live network.
+Every packet in the demonstration set is generated in memory with a fixed random seed. Addresses come from [RFC 5737](https://www.rfc-editor.org/rfc/rfc5737) documentation ranges and [RFC 1918](https://www.rfc-editor.org/rfc/rfc1918) private ranges. While that set is loaded, the dashboard banner states that the rows are fictional. They are not a capture from this computer or any live network.
 
 The application does not send data off the machine. There is no telemetry and no threat-intelligence lookup.
+
+## Offline captures
+
+The sidebar accepts one `.pcap`, `.pcapng`, or `.cap` file, up to 50 MB. Parsing happens in memory on this computer. The capture is not written into the repository and is not sent anywhere.
+
+Scapy reads the saved packets. NetWatch keeps timestamp, addresses, protocol, ports, length, IP version, and TCP flags. It does not keep payload bytes. Packets without usable IP metadata are counted and skipped. A capture with more than 100,000 acceptable packets keeps the first 100,000.
+
+The table column "Data origin" reads "Imported" for these rows. "Use simulated data" loads the fictional set again. Live capture is not implemented. Reading a saved file does not require Npcap.
 
 ## Local use only
 
@@ -70,13 +79,19 @@ PowerShell, from the repository root:
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-The tests call the generator and filter functions directly. They do not start Streamlit and they do not use the network.
+Generator, filter, and parser tests call those functions directly. They build small captures in memory and do not send packets. One test runs the dashboard through Streamlit's app runner to confirm an upload replaces the fictional set and a file that is not a capture leaves that set in place.
 
 In the dashboard, Overview shows the full seeded set. On Network Traffic:
 
 - IP `192.0.2.10` narrows the table to packets involving that documentation address.
 - IP `192.0.2.199` is valid and outside the seeded set, so the table is empty.
 - Protocol, port, and the UTC time slider narrow the same table.
+
+## Inspect a saved capture
+
+Start the dashboard, then use "Offline capture" in the sidebar. After a successful import, Overview and Network Traffic describe that file. "Use simulated data" loads the 800-row demonstration set again.
+
+A file that is not a PCAP or PCAPNG leaves the current packet table in place and shows an error in the sidebar.
 
 ## Project layout
 
@@ -86,6 +101,7 @@ NetWatch/
 ├── core/
 │   ├── models.py              # Packet, event, rule, and alert records
 │   ├── sample_data.py         # Seeded fictional traffic
+│   ├── packet_analyzer.py     # Offline PCAP and PCAPNG metadata
 │   └── filters.py             # Filter and summary functions
 ├── dashboard/
 │   ├── common.py              # Banner, chart styling, table formatting
@@ -99,12 +115,12 @@ NetWatch/
 └── README.md
 ```
 
-Upcoming modules, not present until their phase: `core/packet_analyzer.py`, `core/log_analyzer.py`, `core/detection_engine.py`, `core/database.py`, `dashboard/security_events.py`, `dashboard/alerts.py`, and `dashboard/investigation.py`.
+Upcoming modules, not present until their phase: `core/log_analyzer.py`, `core/detection_engine.py`, `core/database.py`, `dashboard/security_events.py`, `dashboard/alerts.py`, and `dashboard/investigation.py`.
 
 ## Roadmap
 
-1. **Simulated traffic dashboard.** This phase.
-2. **Offline PCAP analysis.** Upload a saved capture and parse metadata with Scapy. Live capture stays off unless you explicitly approve it.
+1. **Simulated traffic dashboard.** Done.
+2. **Offline PCAP analysis.** This phase. Upload a saved capture and parse metadata with Scapy. Live capture stays off.
 3. **Windows events and SQLite.** Simulated security events first, then an optional local log reader that handles missing channels and access denied.
 4. **Detection engine.** Failed authentication, possible port scanning, volume change, and user-defined watch rules. Alert text will describe behavior, not a confirmed attack.
 5. **Investigation and portfolio polish.** Alert status, evidence review, architecture notes, and screenshots of the seeded scenario.
