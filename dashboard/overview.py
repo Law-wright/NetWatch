@@ -6,18 +6,21 @@ import plotly.express as px
 import streamlit as st
 
 from core.filters import packet_summary, packets_over_time
-from dashboard.common import is_imported_capture, require_packets, style_chart
+from dashboard.common import is_imported_capture, render_banner, require_packets, style_chart
 
+render_banner()
 st.header("Overview")
 if is_imported_capture():
     st.caption(
         "Counts describe the uploaded capture. Network Traffic is where filters "
-        "narrow it. Windows events and detection alerts come in later phases."
+        "narrow it. Security Events holds the event set, and detection alerts come "
+        "in a later phase."
     )
 else:
     st.caption(
         "Counts describe the full fictional set. Network Traffic is where filters "
-        "narrow that set. Windows events and detection alerts come in later phases."
+        "narrow that set. Security Events holds a fictional Windows log, and "
+        "detection alerts come in a later phase."
     )
 note = st.session_state.get("import_note")
 if isinstance(note, str) and note:

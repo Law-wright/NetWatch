@@ -11,8 +11,8 @@ import streamlit as st
 
 from core.filters import packet_summary
 from core.packet_analyzer import capture_label, describe_import, parse_pcap_bytes
-from core.sample_data import generate_packet_frame
-from dashboard.common import active_banner, inject_styles, is_imported_capture, render_banner
+from dashboard.common import active_banner, inject_styles, is_imported_capture
+from dashboard.state import load_session, save_imported_packets, use_simulated_packets
 
 LOGGER = logging.getLogger("netwatch")
 
@@ -32,28 +32,6 @@ def configure_logging() -> None:
             logging.FileHandler(log_directory / "netwatch.log", encoding="utf-8"),
         ],
     )
-
-
-def _use_simulated_packets() -> None:
-    """Replace the session packet table with the seeded fictional set."""
-    frame = generate_packet_frame()
-    st.session_state.packets = frame
-    st.session_state.data_source = "simulated"
-    st.session_state.source_name = "Fictional demonstration set"
-    st.session_state.import_note = None
-    LOGGER.info("Loaded %s simulated packets", len(frame))
-
-
-def load_packets() -> None:
-    """Load the seeded fictional set once per browser session."""
-    if "packets" not in st.session_state:
-        _use_simulated_packets()
-    st.session_state.setdefault("data_source", "simulated")
-    st.session_state.setdefault("source_name", "Fictional demonstration set")
-    st.session_state.setdefault("import_note", None)
-    st.session_state.setdefault("upload_generation", 0)
-    st.session_state.setdefault("pcap_file_id", None)
-    st.session_state.setdefault("pcap_error", None)
 
 
 def _ingest_capture(upload: Any) -> None:
@@ -82,10 +60,11 @@ def _ingest_capture(upload: Any) -> None:
         LOGGER.info("Rejected uploaded capture: %s", result.error)
         return
     st.session_state.pcap_error = None
-    st.session_state.packets = result.frame
-    st.session_state.data_source = "imported"
-    st.session_state.source_name = capture_label(getattr(upload, "name", ""))
-    st.session_state.import_note = describe_import(result)
+    save_imported_packets(
+        result.frame,
+        capture_label(getattr(upload, "name", "")),
+        describe_import(result),
+    )
     LOGGER.info(
         "Imported capture accepted %s skipped %s truncated %s incomplete %s",
         result.accepted,
@@ -102,7 +81,7 @@ def _render_sidebar() -> None:
         st.caption("Local-only security monitoring")
         st.caption(
             "Upload a saved PCAP or PCAPNG to inspect it here. "
-            "Live capture is off. Windows events and detection come in later phases."
+            "Live capture is off. Security Events can read local Windows logs when you ask."
         )
         generation = int(st.session_state.get("upload_generation", 0))
         upload = st.file_uploader(
@@ -118,10 +97,17 @@ def _render_sidebar() -> None:
             _ingest_capture(upload)
         summary = packet_summary(st.session_state.packets)
         st.metric("Packets loaded", f"{summary.total_packets:,}")
+        events = st.session_state.get("events")
+        event_count = len(events) if events is not None else 0
+        st.metric("Events loaded", f"{event_count:,}")
         if is_imported_capture():
-            st.caption(f"Source: {st.session_state.source_name}")
+            st.caption(f"Packets: {st.session_state.source_name}")
         else:
-            st.caption("Source: fictional demonstration set")
+            st.caption("Packets: fictional demonstration set")
+        if st.session_state.get("event_source") == "local":
+            st.caption(f"Events: {st.session_state.get('event_source_name', 'Local Windows logs')}")
+        else:
+            st.caption("Events: fictional demonstration set")
         note = st.session_state.get("import_note")
         if isinstance(note, str) and note:
             st.caption(note)
@@ -130,7 +116,7 @@ def _render_sidebar() -> None:
         if isinstance(error, str) and error:
             st.error(error)
         if is_imported_capture() and st.button("Use simulated data"):
-            _use_simulated_packets()
+            use_simulated_packets()
             st.session_state.upload_generation = generation + 1
             st.session_state.pcap_file_id = None
             st.session_state.pcap_error = None
@@ -138,21 +124,21 @@ def _render_sidebar() -> None:
 
 
 def main() -> None:
-    """Render the sidebar, banner, and page navigation."""
+    """Render the sidebar and page navigation."""
     st.set_page_config(
         page_title="NetWatch",
         layout="wide",
         initial_sidebar_state="expanded",
     )
     configure_logging()
-    load_packets()
+    load_session()
     inject_styles()
     _render_sidebar()
-    render_banner()
 
     pages = [
         st.Page("dashboard/overview.py", title="Overview", default=True),
         st.Page("dashboard/network.py", title="Network Traffic"),
+        st.Page("dashboard/security_events.py", title="Security Events"),
     ]
     st.navigation(pages).run()
 

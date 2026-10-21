@@ -1,8 +1,9 @@
 """Shared records exchanged by analysis, storage, and the dashboard.
 
-Phase 1 builds ``PacketRecord`` rows in memory. The other records are the
-contracts later phases will persist. None of them store packet payloads,
-passwords, or authentication material.
+Packets and security events are stored in the local SQLite database.
+Detection rules and alerts are the contracts a later phase will persist.
+None of these records store packet payloads, passwords, command lines,
+or other authentication material.
 """
 
 from __future__ import annotations
@@ -45,6 +46,27 @@ PACKET_COLUMNS: tuple[str, ...] = (
     "tcp_flags",
     "import_id",
     "is_simulated",
+)
+EVENT_COLUMNS: tuple[str, ...] = (
+    "event_uid",
+    "timestamp",
+    "channel",
+    "provider",
+    "event_id",
+    "account_name",
+    "src_ip",
+    "dst_ip",
+    "src_port",
+    "dst_port",
+    "process_name",
+    "process_id",
+    "parent_process",
+    "logon_type",
+    "outcome",
+    "message",
+    "is_simulated",
+    "record_id",
+    "ingested_at",
 )
 
 _PORT_PROTOCOLS = frozenset({"TCP", "UDP"})

@@ -297,9 +297,13 @@ def test_parser_does_not_capture_live_traffic() -> None:
     assert "AsyncSniffer" not in source
 
 
-def test_dashboard_upload_replaces_and_restores_the_fictional_set() -> None:
+def test_dashboard_upload_replaces_and_restores_the_fictional_set(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from streamlit.testing.v1 import AppTest
 
+    monkeypatch.setenv("NETWATCH_DB", str(tmp_path / "netwatch.db"))
     capture = _write_capture([_tcp("192.0.2.10", "198.51.100.7", 49152, 443, "S", _moment(4))])
     app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py", default_timeout=60)
     app.run()

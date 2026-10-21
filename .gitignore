@@ -11,6 +11,8 @@ logs/
 
 # Packet captures and databases stay on the machine
 data/*.db
+data/*.db-wal
+data/*.db-shm
 data/*.pcap
 data/*.pcapng
 

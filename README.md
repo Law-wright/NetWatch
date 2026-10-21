@@ -1,6 +1,6 @@
 # NetWatch
 
-NetWatch is a local network security monitoring project. It is a dark Streamlit dashboard for a seeded set of fictional packet metadata, and it can also summarize a PCAP or PCAPNG file you upload. Later phases will add Windows security events, SQLite storage, and rule-based detection.
+NetWatch is a local network security monitoring project. It is a dark Streamlit dashboard for a seeded set of fictional packet metadata and fictional Windows events. It can also summarize a PCAP or PCAPNG file you upload, and it can read local Windows logs when you ask. A later phase will add rule-based detection.
 
 This is a portfolio and learning project. It is not a production IDS, and it does not capture live traffic.
 
@@ -15,12 +15,15 @@ Implemented now:
 - A metadata table with a visible data-origin label
 - Offline PCAP and PCAPNG upload, parsed with Scapy into that same table
 - A 50 MB upload cap and a 100,000 packet cap
-- Unit tests for the generator, record contracts, filters, and capture parser
+- Seeded fictional security events (80 rows, same 30-minute UTC window, including eight failed logons)
+- A Security Events page with filters and an events-over-time chart
+- Optional local read of the Security, System, Application, and Sysmon channels
+- Missing channels and access denials are reported and skipped
+- SQLite persistence for the active packet set and the active event set (`data/netwatch.db`)
+- Unit tests for the generator, record contracts, filters, capture parser, event reader, and database
 
 Not implemented yet:
 
-- Windows and Sysmon event ingestion (Phase 3)
-- SQLite persistence (Phase 3)
 - Detection rules and alerts (Phase 4)
 - Investigation workflow and screenshots (Phase 5)
 
@@ -36,7 +39,23 @@ The sidebar accepts one `.pcap`, `.pcapng`, or `.cap` file, up to 50 MB. Parsing
 
 Scapy reads the saved packets. NetWatch keeps timestamp, addresses, protocol, ports, length, IP version, and TCP flags. It does not keep payload bytes. Packets without usable IP metadata are counted and skipped. A capture with more than 100,000 acceptable packets keeps the first 100,000.
 
-The table column "Data origin" reads "Imported" for these rows. "Use simulated data" loads the fictional set again. Live capture is not implemented. Reading a saved file does not require Npcap.
+The table column "Data origin" reads "Imported" for these rows. "Use simulated data" loads the fictional set again. The imported metadata is saved in the local database and shown again on the next launch. Live capture is not implemented. Reading a saved file does not require Npcap.
+
+## Windows events
+
+Security Events opens on a seeded fictional log. The accounts are `demo.user`, `svc.backup`, and `lab.admin`. Addresses stay inside the same documentation and private ranges as the packets. Eight rows are failed logons for `demo.user` from `192.0.2.25`. While that set is loaded, the banner says the rows are fictional.
+
+"Read local Windows logs" queries four channels with `wevtutil`: Security, System, Application, and Sysmon (`Microsoft-Windows-Sysmon/Operational`). The query is read-only. NetWatch does not clear logs and does not capture live traffic.
+
+If Windows refuses a channel, or the channel is not installed, that channel is reported and skipped. A read that keeps nothing leaves the current event set in place. The Security channel often refuses readers that are not elevated. Sysmon is absent unless it is installed.
+
+For the events it keeps, NetWatch stores time, channel, provider, event id, account, addresses, ports, the process file name, the parent file name, process id, logon type, and a fixed summary sentence such as "Failed logon." It does not store command lines, free-text messages, passwords, or payload bytes. "Use simulated events" loads the fictional set again.
+
+## Local database
+
+The active packet set and the active event set are stored in `data/netwatch.db`. That file is gitignored. Restarting the dashboard loads it. There is one packet set and one event set at a time: an upload, a local log read, or a return to simulated data replaces the rows it owns.
+
+Tests set `NETWATCH_DB` to a temporary file so they do not use the dashboard database.
 
 ## Local use only
 
@@ -79,13 +98,15 @@ PowerShell, from the repository root:
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-Generator, filter, and parser tests call those functions directly. They build small captures in memory and do not send packets. One test runs the dashboard through Streamlit's app runner to confirm an upload replaces the fictional set and a file that is not a capture leaves that set in place.
+Generator, filter, parser, event, and database tests call those functions directly. They build small captures in memory and do not send packets. They do not query this computer's Windows logs; the reader tests pass in XML and canned status text. Dashboard tests set `NETWATCH_DB` to a temporary file. One test runs the dashboard through Streamlit's app runner to confirm an upload replaces the fictional packet set and a file that is not a capture leaves that set in place. Another confirms Security Events can switch to a canned local read and back to the fictional log.
 
 In the dashboard, Overview shows the full seeded set. On Network Traffic:
 
 - IP `192.0.2.10` narrows the table to packets involving that documentation address.
 - IP `192.0.2.199` is valid and outside the seeded set, so the table is empty.
 - Protocol, port, and the UTC time slider narrow the same table.
+
+On Security Events, the fictional set includes failed logons for `192.0.2.25`. Outcome, channel, event id, account, IP, and the UTC time slider narrow that table. "Read local Windows logs" reports each channel. Access denied, or a missing Sysmon channel, leaves the fictional set in place when nothing was kept.
 
 ## Inspect a saved capture
 
@@ -102,12 +123,16 @@ NetWatch/
 │   ├── models.py              # Packet, event, rule, and alert records
 │   ├── sample_data.py         # Seeded fictional traffic
 │   ├── packet_analyzer.py     # Offline PCAP and PCAPNG metadata
+│   ├── log_analyzer.py        # Fictional events and read-only Windows logs
+│   ├── database.py            # Local SQLite store
 │   └── filters.py             # Filter and summary functions
 ├── dashboard/
 │   ├── common.py              # Banner, chart styling, table formatting
+│   ├── state.py               # Session state and database loads
 │   ├── overview.py            # Metrics and packets over time
-│   └── network.py             # Charts, filters, and the packet table
-├── data/                      # Future local databases and captures (gitignored)
+│   ├── network.py             # Charts, filters, and the packet table
+│   └── security_events.py     # Event filters, chart, and local log read
+├── data/                      # Local database and captures (gitignored)
 ├── tests/
 ├── .streamlit/config.toml     # Loopback bind, dark theme, upload cap
 ├── requirements.txt
@@ -115,13 +140,13 @@ NetWatch/
 └── README.md
 ```
 
-Upcoming modules, not present until their phase: `core/log_analyzer.py`, `core/detection_engine.py`, `core/database.py`, `dashboard/security_events.py`, `dashboard/alerts.py`, and `dashboard/investigation.py`.
+Upcoming modules, not present until their phase: `core/detection_engine.py`, `dashboard/alerts.py`, and `dashboard/investigation.py`.
 
 ## Roadmap
 
 1. **Simulated traffic dashboard.** Done.
-2. **Offline PCAP analysis.** This phase. Upload a saved capture and parse metadata with Scapy. Live capture stays off.
-3. **Windows events and SQLite.** Simulated security events first, then an optional local log reader that handles missing channels and access denied.
+2. **Offline PCAP analysis.** Done. Upload a saved capture and parse metadata with Scapy. Live capture stays off.
+3. **Windows events and SQLite.** Done. Fictional security events, an optional local log reader that handles missing channels and access denied, and a local SQLite file for the active packet and event sets.
 4. **Detection engine.** Failed authentication, possible port scanning, volume change, and user-defined watch rules. Alert text will describe behavior, not a confirmed attack.
 5. **Investigation and portfolio polish.** Alert status, evidence review, architecture notes, and screenshots of the seeded scenario.
 

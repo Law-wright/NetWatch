@@ -14,9 +14,12 @@ from dashboard.common import (
     PROTOCOL_COLORS,
     display_packets,
     is_imported_capture,
+    render_banner,
     require_packets,
     style_chart,
 )
+
+render_banner()
 
 
 def _slider_bounds(frame: pd.DataFrame) -> tuple[datetime, datetime]:
