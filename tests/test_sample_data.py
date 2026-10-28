@@ -22,9 +22,16 @@ from core.sample_data import (
     SAMPLE_SEED,
     SAMPLE_START,
     SAMPLE_WINDOW,
+    SCAN_DESTINATION,
+    SCAN_PORT_COUNT,
+    SCAN_PORT_START,
+    SCAN_SOURCE,
     SOURCE_CHOICES,
     TCP_PORT_CHOICES,
     UDP_PORT_CHOICES,
+    VOLUME_DESTINATION,
+    VOLUME_PACKET_COUNT,
+    VOLUME_SOURCE,
     generate_packet_frame,
     generate_packets,
     packets_from_mappings,
@@ -99,8 +106,25 @@ def test_generator_contract() -> None:
     assert tcp["dst_port"].notna().all()
     assert tcp["tcp_flags"].notna().all()
     assert udp["tcp_flags"].isna().all()
-    assert set(tcp["dst_port"].astype(int)) <= {port for port, _ in TCP_PORT_CHOICES}
+    scan_ports = set(range(SCAN_PORT_START, SCAN_PORT_START + SCAN_PORT_COUNT))
+    assert set(tcp["dst_port"].astype(int)) <= {port for port, _ in TCP_PORT_CHOICES} | scan_ports
     assert set(udp["dst_port"].astype(int)) <= {port for port, _ in UDP_PORT_CHOICES}
+    scan = tcp[
+        (tcp["src_ip"] == SCAN_SOURCE)
+        & (tcp["dst_ip"] == SCAN_DESTINATION)
+        & (tcp["tcp_flags"] == "SYN")
+    ]
+    assert scan_ports <= set(scan["dst_port"].astype(int))
+    volume_start = pd.Timestamp(SAMPLE_START + timedelta(minutes=6))
+    volume = frame[
+        (frame["timestamp"] >= volume_start)
+        & (frame["timestamp"] < volume_start + pd.Timedelta(minutes=1))
+        & (frame["src_ip"] == VOLUME_SOURCE)
+        & (frame["dst_ip"] == VOLUME_DESTINATION)
+        & (frame["dst_port"] == 443)
+        & (frame["tcp_flags"] == "ACK")
+    ]
+    assert len(volume) >= VOLUME_PACKET_COUNT
     assert tcp["src_port"].between(49152, 65535).all()
     assert udp["src_port"].between(49152, 65535).all()
     assert frame["packet_length"].between(1, 65535).all()

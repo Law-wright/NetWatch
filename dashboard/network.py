@@ -45,7 +45,8 @@ else:
     st.caption(
         "Addresses are drawn from RFC 5737 documentation ranges and RFC 1918 private "
         "ranges. Destination ports such as 80, 443, 53, 22, 445, and 3389 are part of "
-        "the fiction, not observations of this computer."
+        "the fiction, along with a TCP SYN burst to ports 2000-2019 and a one-minute "
+        "volume increase."
     )
 
 source = require_packets()

@@ -1,4 +1,4 @@
-"""Local SQLite storage for packet metadata and security events.
+"""Local SQLite storage for packet metadata, security events, rules, and alerts.
 
 The database lives under ``data/`` unless ``NETWATCH_DB`` points at another
 ``.db`` file. Rows are the same records the dashboard already uses. Payloads,
@@ -7,6 +7,7 @@ command lines, and free-text log messages are not columns.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sqlite3
@@ -20,7 +21,16 @@ from typing import Any, Iterator
 import pandas as pd
 
 from core.log_analyzer import events_to_frame
-from core.models import EVENT_COLUMNS, PACKET_COLUMNS, PacketRecord, SecurityEvent
+from core.models import (
+    ALERT_STATUSES,
+    EVENT_COLUMNS,
+    PACKET_COLUMNS,
+    SEVERITIES,
+    DetectionRule,
+    PacketRecord,
+    SecurityAlert,
+    SecurityEvent,
+)
 from core.sample_data import records_to_frame
 
 logger = logging.getLogger(__name__)
@@ -262,6 +272,37 @@ class NetWatchStore:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON security_events (timestamp)"
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS detection_rules (
+                    rule_key TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    enabled INTEGER NOT NULL,
+                    severity TEXT NOT NULL,
+                    parameters TEXT NOT NULL,
+                    builtin INTEGER NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS security_alerts (
+                    alert_uid TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    rule_key TEXT NOT NULL,
+                    severity TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    src_ip TEXT,
+                    dst_ip TEXT,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    first_seen TEXT NOT NULL,
+                    last_seen TEXT NOT NULL,
+                    evidence TEXT NOT NULL
+                )
+                """
+            )
 
     def replace_packets(
         self,
@@ -439,6 +480,246 @@ class NetWatchStore:
             source_name=str(row["source_name"]),
             note=None if row["note"] is None else str(row["note"]),
         )
+
+    def ensure_rules(self, defaults: Sequence[DetectionRule]) -> None:
+        """Insert built-in rules that are not already stored.
+
+        Existing rows are left alone, including rows whose parameters were edited.
+        """
+        self.initialize()
+        with self.connection() as connection:
+            existing = {
+                str(row["rule_key"])
+                for row in connection.execute("SELECT rule_key FROM detection_rules")
+            }
+            for rule in defaults:
+                if rule.rule_key in existing:
+                    continue
+                _insert_rule(connection, rule, builtin=True)
+
+    def load_rules(self) -> list[DetectionRule]:
+        """Return stored rules. Invalid rows are skipped."""
+        self.initialize()
+        with self.connection() as connection:
+            fetched = connection.execute(
+                """
+                SELECT rule_key, name, description, enabled, severity, parameters, builtin
+                FROM detection_rules
+                ORDER BY builtin DESC, rule_key
+                """
+            ).fetchall()
+        rules: list[DetectionRule] = []
+        for index, row in enumerate(fetched):
+            try:
+                parameters = json.loads(str(row["parameters"]))
+                if not isinstance(parameters, dict):
+                    raise ValueError("parameters must be a mapping.")
+                rules.append(
+                    DetectionRule(
+                        rule_key=str(row["rule_key"]),
+                        name=str(row["name"]),
+                        description=str(row["description"]),
+                        enabled=bool(row["enabled"]),
+                        severity=str(row["severity"]),
+                        parameters=parameters,
+                    )
+                )
+            except (TypeError, ValueError) as exc:
+                logger.warning("Skipped stored rule row %s: %s", index, str(exc)[:200])
+        return rules
+
+    def save_rule(self, rule: DetectionRule) -> None:
+        """Insert a watch or update an existing rule.
+
+        Built-in rows keep their name and description. New keys must be watches.
+        """
+        payload = json.dumps(dict(rule.parameters), sort_keys=True, separators=(",", ":"))
+        self.initialize()
+        with self.connection() as connection:
+            existing = connection.execute(
+                "SELECT builtin FROM detection_rules WHERE rule_key = ?",
+                (rule.rule_key,),
+            ).fetchone()
+            if existing is None:
+                if not rule.rule_key.startswith("watch_"):
+                    raise ValueError("Custom rules use a watch_ key.")
+                _insert_rule(connection, rule, builtin=False, payload=payload)
+                return
+            if existing["builtin"]:
+                connection.execute(
+                    """
+                    UPDATE detection_rules
+                    SET enabled = ?, severity = ?, parameters = ?
+                    WHERE rule_key = ?
+                    """,
+                    (int(rule.enabled), rule.severity, payload, rule.rule_key),
+                )
+                return
+            connection.execute(
+                """
+                UPDATE detection_rules
+                SET name = ?, description = ?, enabled = ?, severity = ?, parameters = ?
+                WHERE rule_key = ?
+                """,
+                (
+                    rule.name,
+                    rule.description,
+                    int(rule.enabled),
+                    rule.severity,
+                    payload,
+                    rule.rule_key,
+                ),
+            )
+
+    def delete_rule(self, rule_key: str) -> None:
+        """Remove a watch. Built-in rules stay installed."""
+        self.initialize()
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT builtin FROM detection_rules WHERE rule_key = ?",
+                (rule_key,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("That rule is not installed.")
+            if row["builtin"]:
+                raise ValueError("Built-in rules stay installed. Disable the rule instead.")
+            connection.execute("DELETE FROM detection_rules WHERE rule_key = ?", (rule_key,))
+
+    def replace_alerts(self, alerts: Sequence[SecurityAlert]) -> int:
+        """Replace stored findings. A finding that appears again keeps status and created_at."""
+        self.initialize()
+        with self.connection() as connection:
+            prior: dict[str, tuple[str, str]] = {}
+            for row in connection.execute("SELECT alert_uid, status, created_at FROM security_alerts"):
+                prior[str(row["alert_uid"])] = (str(row["status"]), str(row["created_at"]))
+            connection.execute("DELETE FROM security_alerts")
+            stored: list[SecurityAlert] = []
+            for alert in alerts:
+                stored.append(_with_saved_history(alert, prior))
+            connection.executemany(
+                """
+                INSERT INTO security_alerts (
+                    alert_uid, created_at, rule_key, severity, status, src_ip, dst_ip,
+                    title, description, first_seen, last_seen, evidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [_alert_row(alert) for alert in stored],
+            )
+        logger.info("Saved %s alerts", len(stored))
+        return len(stored)
+
+    def load_alerts(self) -> list[SecurityAlert]:
+        """Return stored findings. Invalid rows are skipped."""
+        self.initialize()
+        with self.connection() as connection:
+            fetched = connection.execute(
+                """
+                SELECT alert_uid, created_at, rule_key, severity, status, src_ip, dst_ip,
+                       title, description, first_seen, last_seen, evidence
+                FROM security_alerts
+                """
+            ).fetchall()
+        alerts: list[SecurityAlert] = []
+        for index, row in enumerate(fetched):
+            try:
+                evidence = json.loads(str(row["evidence"]))
+                if not isinstance(evidence, dict):
+                    raise ValueError("evidence must be a mapping.")
+                alerts.append(
+                    SecurityAlert(
+                        alert_uid=str(row["alert_uid"]),
+                        created_at=_as_datetime(row["created_at"]),
+                        rule_key=str(row["rule_key"]),
+                        severity=str(row["severity"]),
+                        status=str(row["status"]),
+                        src_ip=_as_text(row["src_ip"]),
+                        dst_ip=_as_text(row["dst_ip"]),
+                        title=str(row["title"]),
+                        description=str(row["description"]),
+                        first_seen=_as_datetime(row["first_seen"]),
+                        last_seen=_as_datetime(row["last_seen"]),
+                        evidence=evidence,
+                    )
+                )
+            except (TypeError, ValueError) as exc:
+                logger.warning("Skipped stored alert row %s: %s", index, str(exc)[:200])
+        rank = {name: index for index, name in enumerate(SEVERITIES)}
+        alerts.sort(key=lambda alert: (rank.get(alert.severity, 99), -alert.last_seen.timestamp(), alert.alert_uid))
+        return alerts
+
+
+def _insert_rule(
+    connection: sqlite3.Connection,
+    rule: DetectionRule,
+    *,
+    builtin: bool,
+    payload: str | None = None,
+) -> None:
+    encoded = payload if payload is not None else json.dumps(
+        dict(rule.parameters), sort_keys=True, separators=(",", ":")
+    )
+    connection.execute(
+        """
+        INSERT INTO detection_rules (
+            rule_key, name, description, enabled, severity, parameters, builtin
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            rule.rule_key,
+            rule.name,
+            rule.description,
+            int(rule.enabled),
+            rule.severity,
+            encoded,
+            int(builtin),
+        ),
+    )
+
+
+def _with_saved_history(alert: SecurityAlert, prior: dict[str, tuple[str, str]]) -> SecurityAlert:
+    saved = prior.get(alert.alert_uid)
+    if saved is None:
+        return alert
+    status, created_text = saved
+    if status not in ALERT_STATUSES:
+        status = alert.status
+    try:
+        created_at = _as_datetime(created_text)
+    except ValueError:
+        created_at = alert.created_at
+    if status == alert.status and created_at == alert.created_at:
+        return alert
+    return SecurityAlert(
+        alert_uid=alert.alert_uid,
+        created_at=created_at,
+        rule_key=alert.rule_key,
+        severity=alert.severity,
+        status=status,
+        src_ip=alert.src_ip,
+        dst_ip=alert.dst_ip,
+        title=alert.title,
+        description=alert.description,
+        first_seen=alert.first_seen,
+        last_seen=alert.last_seen,
+        evidence=dict(alert.evidence),
+    )
+
+
+def _alert_row(alert: SecurityAlert) -> tuple[Any, ...]:
+    return (
+        alert.alert_uid,
+        _iso(alert.created_at),
+        alert.rule_key,
+        alert.severity,
+        alert.status,
+        alert.src_ip,
+        alert.dst_ip,
+        alert.title,
+        alert.description,
+        _iso(alert.first_seen),
+        _iso(alert.last_seen),
+        json.dumps(dict(alert.evidence), sort_keys=True, separators=(",", ":")),
+    )
 
 
 def _write_meta(

@@ -13,14 +13,14 @@ st.header("Overview")
 if is_imported_capture():
     st.caption(
         "Counts describe the uploaded capture. Network Traffic is where filters "
-        "narrow it. Security Events holds the event set, and detection alerts come "
-        "in a later phase."
+        "narrow it. Security Events holds the event set. Alerts lists detection "
+        "findings for both."
     )
 else:
     st.caption(
         "Counts describe the full fictional set. Network Traffic is where filters "
-        "narrow that set. Security Events holds a fictional Windows log, and "
-        "detection alerts come in a later phase."
+        "narrow that set. Security Events holds a fictional Windows log. Alerts "
+        "lists detection findings for both."
     )
 note = st.session_state.get("import_note")
 if isinstance(note, str) and note:

@@ -19,24 +19,26 @@ Built to demonstrate a local security monitoring workflow—packets plus Windows
 
 Implemented now:
 
-- **Phase 1 — Simulated traffic dashboard.** Seeded fictional packet metadata (800 rows, fixed 30-minute UTC window); Overview metrics and packets-over-time; protocol, top address, and port charts; filters for IP, protocol, port, and time; metadata table with a data-origin label
+- **Phase 1 — Simulated traffic dashboard.** Seeded fictional packet metadata (800 rows, fixed 30-minute UTC window, including a TCP SYN burst and a one-minute volume increase); Overview metrics and packets-over-time; protocol, top address, and port charts; filters for IP, protocol, port, and time; metadata table with a data-origin label
 - **Phase 2 — Offline PCAP analysis.** PCAP / PCAPNG / CAP upload parsed with Scapy into that same table; 50 MB upload cap and 100,000 packet cap
 - **Phase 3 — Windows events and SQLite.** Seeded fictional security events (80 rows, same window, including eight failed logons); Security Events page with filters and an events-over-time chart; optional local read of Security, System, Application, and Sysmon (missing channels and access denials reported and skipped); SQLite persistence for the active packet and event sets (`data/netwatch.db`); unit tests for the generator, record contracts, filters, capture parser, event reader, and database
+- **Phase 4 — Detection rules and alerts.** Failed authentication, possible port scanning, volume change, and user-defined watch rules. Findings are stored in the local database and shown on the Alerts page. The wording describes the pattern
 
 Not implemented yet:
 
-- **Phase 4 — Detection rules and alerts.** Failed authentication, possible port scanning, volume change, and user-defined watch rules
 - **Phase 5 — Investigation and portfolio polish.** Alert status, evidence review, architecture notes, and additional investigation-scenario screenshots
 
 ## Screenshots
 
-Views from Phases 1–3 on the seeded fictional packet and event sets. Save PNGs under [`docs/screenshots/`](docs/screenshots/) using the filenames below. Phase 5 will add further shots for the investigation workflow.
+Views from Phases 1–4 on the seeded fictional packet and event sets. Save PNGs under [`docs/screenshots/`](docs/screenshots/) using the filenames below. Phase 5 will add further shots for the investigation workflow.
 
 ![Overview — seeded fictional metrics and packets over time](docs/screenshots/overview.png)
 
 ![Network Traffic — filters and metadata table on the seeded set](docs/screenshots/network-traffic.png)
 
 ![Security Events — seeded events including failed logons](docs/screenshots/security-events.png)
+
+![Alerts — seeded findings for failed logons, a SYN burst, and a volume increase](docs/screenshots/alerts.png)
 
 ![Sidebar — offline PCAP upload (optional)](docs/screenshots/sidebar-pcap.png)
 
@@ -45,6 +47,7 @@ Views from Phases 1–3 on the seeded fictional packet and event sets. Save PNGs
 | `overview.png` | Overview metrics and packets-over-time |
 | `network-traffic.png` | Network Traffic filters and table |
 | `security-events.png` | Security Events, including failed logons for `demo.user` from `192.0.2.25` |
+| `alerts.png` | Alerts for the seeded failed logons, SYN burst, and volume increase |
 | `sidebar-pcap.png` | Sidebar offline capture upload (optional) |
 
 ## Limitations
@@ -56,12 +59,15 @@ NetWatch is a portfolio and learning project, not a production IDS. Scope stays 
 - No telemetry; data is not sent off the machine
 - Dashboard binds to `127.0.0.1` only; do not expose it to the internet
 - One active packet set and one active event set at a time
+- Detection findings describe patterns in the stored metadata. Severity is a review label
 - Upload capped at 50 MB; at most 100,000 acceptable packets kept
 - Local Windows log read needs appropriate rights; missing channels (for example Sysmon) are skipped
 
 ## Simulated data
 
 Every packet in the demonstration set is generated in memory with a fixed random seed. Addresses come from [RFC 5737](https://www.rfc-editor.org/rfc/rfc5737) documentation ranges and [RFC 1918](https://www.rfc-editor.org/rfc/rfc1918) private ranges. While that set is loaded, the dashboard banner states that the rows are fictional.
+
+The full set reserves two patterns for the detection rules: a TCP SYN burst from `10.0.0.18` to `203.0.113.80` on ports 2000–2019, and 80 packets in one minute from `192.168.1.10` to `192.0.2.10`. Smaller generated fixtures omit those bursts.
 
 ## Offline captures
 
@@ -84,6 +90,18 @@ For events it keeps, NetWatch stores time, channel, provider, event id, account,
 The active packet set and the active event set are stored in `data/netwatch.db`. That file is gitignored. Restarting the dashboard loads it. An upload, a local log read, or a return to simulated data replaces the rows it owns.
 
 Tests set `NETWATCH_DB` to a temporary file so they do not use the dashboard database.
+
+## Detection
+
+Alerts run on the packet set and the event set that are loaded. Three rules are installed with the database:
+
+- **Repeated failed authentication.** Failed logons (Windows event 4625) for the same account and source address inside a time window. The default is 5 failures in 300 seconds. The fictional event set includes eight failed logons for `demo.user` from `192.0.2.25`.
+- **Possible port scanning.** TCP SYN packets from one source to many destination ports on one host. The default is 15 distinct ports in 60 seconds. The fictional packet set includes the SYN burst described above.
+- **Packet volume change.** A time bucket whose packet count is at least 3 times the median of the other buckets, and at least 40 packets. The fictional packet set includes the one-minute increase described above.
+
+Each built-in rule can be turned off, and its numbers can be changed, from the Alerts page. A watch matches packets or events on the fields you set: address, protocol, port, account, event id, and outcome. One watch produces one finding for the rows that match every field.
+
+The finding text states the counts, the window, and the addresses involved. Findings are replaced when the packet set, the event set, or the rules change. A finding that appears again keeps the status and the time it was first stored. Changing that status is part of the investigation workflow in the next phase.
 
 ## Requirements
 
@@ -122,7 +140,7 @@ PowerShell, from the repository root:
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-Generator, filter, parser, event, and database tests call those functions directly. They build small captures in memory and do not send packets. They do not query this computer's Windows logs; the reader tests pass in XML and canned status text. Dashboard tests set `NETWATCH_DB` to a temporary file. One test runs the dashboard through Streamlit's app runner to confirm an upload replaces the fictional packet set and a file that is not a capture leaves that set in place. Another confirms Security Events can switch to a canned local read and back to the fictional log.
+Generator, filter, parser, event, detection, and database tests call those functions directly. They build small captures in memory and do not send packets. They do not query this computer's Windows logs; the reader tests pass in XML and canned status text. Detection tests cover the seeded failed-logon burst, the SYN burst, the volume increase, and watches. Dashboard tests set `NETWATCH_DB` to a temporary file. One test runs the dashboard through Streamlit's app runner to confirm an upload replaces the fictional packet set and a file that is not a capture leaves that set in place. Another confirms Security Events can switch to a canned local read and back to the fictional log. Another opens Alerts and checks the seeded findings.
 
 In the dashboard, Overview shows the full seeded set. On Network Traffic:
 
@@ -169,11 +187,15 @@ Packet metadata and Windows events both land in the local SQLite store. The Stre
                  SQLite DB
                       |
                       v
+              Detection engine
+                      |
+                      v
               Streamlit Dashboard
                       |
-        -----------------------------
-        |             |             |
-     Overview   Network Traffic  Security Events
+        ---------------------------------------
+        |             |             |         |
+     Overview   Network Traffic  Security   Alerts
+                                  Events
 ```
 
 ## Project layout
@@ -186,6 +208,7 @@ NetWatch/
 │   ├── sample_data.py         # Seeded fictional traffic
 │   ├── packet_analyzer.py     # Offline PCAP and PCAPNG metadata
 │   ├── log_analyzer.py        # Fictional events and read-only Windows logs
+│   ├── detection_engine.py    # Failed logons, SYN port spread, volume, watches
 │   ├── database.py            # Local SQLite store
 │   └── filters.py             # Filter and summary functions
 ├── dashboard/
@@ -193,7 +216,8 @@ NetWatch/
 │   ├── state.py               # Session state and database loads
 │   ├── overview.py            # Metrics and packets over time
 │   ├── network.py             # Charts, filters, and the packet table
-│   └── security_events.py     # Event filters, chart, and local log read
+│   ├── security_events.py     # Event filters, chart, and local log read
+│   └── alerts.py              # Findings and rule settings
 ├── data/                      # Local database and captures (gitignored)
 ├── docs/screenshots/          # Dashboard PNGs linked from this README
 ├── tests/
@@ -203,25 +227,26 @@ NetWatch/
 └── README.md
 ```
 
-Upcoming modules, not present until their phase: `core/detection_engine.py`, `dashboard/alerts.py`, and `dashboard/investigation.py`.
+Upcoming module, not present until its phase: `dashboard/investigation.py`.
 
 ## Roadmap
 
 1. **Simulated traffic dashboard.** Done.
 2. **Offline PCAP analysis.** Done. Upload a saved capture and parse metadata with Scapy. Live capture stays off.
 3. **Windows events and SQLite.** Done. Fictional security events, an optional local log reader that handles missing channels and access denied, and a local SQLite file for the active packet and event sets.
-4. **Detection engine.** Failed authentication, possible port scanning, volume change, and user-defined watch rules. Alert text will describe behavior, not a confirmed attack.
+4. **Detection engine.** Done. Failed authentication, possible port scanning, volume change, and user-defined watch rules. Alert text describes the pattern.
 5. **Investigation and portfolio polish.** Alert status, evidence review, architecture notes, and additional investigation-scenario screenshots.
 
 ## Technical findings and lessons learned
 
-Concrete decisions from building Phases 1–3:
+Concrete decisions from building Phases 1–4:
 
 - **Metadata only.** Scapy parses uploads for addresses, ports, protocol, length, and flags. Payload bytes, command lines, and free-text log messages stay out of the models and the SQLite schema so the demo stays safer to share and closer to a monitoring UI than a full packet dump.
 - **Streamlit CORS defaults.** In Streamlit 1.66, `server.enableCORS = false` allows every origin. NetWatch leaves CORS protection on, binds to `127.0.0.1`, and limits `allowedHosts` to localhost addresses.
 - **Windows log access is uneven.** `wevtutil` is read-only here, but the Security channel often denies non-elevated readers and Sysmon may be absent. Reporting and skipping those channels is more honest than treating a partial read as a full local picture.
 - **One active set per domain.** SQLite holds one packet set and one event set at a time. Upload, local log read, or a return to simulated data replaces that domain’s rows. Tests point `NETWATCH_DB` at a temporary file so they never touch the dashboard database.
 - **Fictional ranges on purpose.** Seeded addresses use RFC 5737 documentation space and RFC 1918 private ranges, with a visible data-origin banner, so the demonstration set is not mistaken for a live capture from this machine.
+- **Findings describe the pattern.** Rules count failed logons, distinct SYN ports, bucket volume, and watch matches. The stored text keeps those counts and addresses. Severity is a label for review, and the engine does not call a finding an intrusion.
 
 ## License
 

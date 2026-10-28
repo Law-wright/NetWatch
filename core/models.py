@@ -1,9 +1,8 @@
 """Shared records exchanged by analysis, storage, and the dashboard.
 
-Packets and security events are stored in the local SQLite database.
-Detection rules and alerts are the contracts a later phase will persist.
-None of these records store packet payloads, passwords, command lines,
-or other authentication material.
+Packets, security events, detection rules, and alerts are stored in the
+local SQLite database. None of these records store packet payloads,
+passwords, command lines, or other authentication material.
 """
 
 from __future__ import annotations

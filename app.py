@@ -81,7 +81,8 @@ def _render_sidebar() -> None:
         st.caption("Local-only security monitoring")
         st.caption(
             "Upload a saved PCAP or PCAPNG to inspect it here. "
-            "Live capture is off. Security Events can read local Windows logs when you ask."
+            "Live capture is off. Security Events can read local Windows logs when you ask. "
+            "Alerts runs the detection rules on the loaded sets."
         )
         generation = int(st.session_state.get("upload_generation", 0))
         upload = st.file_uploader(
@@ -100,6 +101,9 @@ def _render_sidebar() -> None:
         events = st.session_state.get("events")
         event_count = len(events) if events is not None else 0
         st.metric("Events loaded", f"{event_count:,}")
+        alerts = st.session_state.get("alerts")
+        alert_count = len(alerts) if isinstance(alerts, list) else 0
+        st.metric("Alerts", f"{alert_count:,}")
         if is_imported_capture():
             st.caption(f"Packets: {st.session_state.source_name}")
         else:
@@ -139,6 +143,7 @@ def main() -> None:
         st.Page("dashboard/overview.py", title="Overview", default=True),
         st.Page("dashboard/network.py", title="Network Traffic"),
         st.Page("dashboard/security_events.py", title="Security Events"),
+        st.Page("dashboard/alerts.py", title="Alerts"),
     ]
     st.navigation(pages).run()
 

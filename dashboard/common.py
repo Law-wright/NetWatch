@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from core.models import PACKET_COLUMNS
+from core.models import PACKET_COLUMNS, DetectionRule, SecurityAlert
 
 SIMULATED_BANNER = (
     "Simulated data. These packets are fictional demonstration records, "
@@ -24,6 +24,18 @@ LOCAL_EVENT_BANNER = (
     "Local Windows logs. These rows were read on this computer from channels "
     "you asked NetWatch to open. Command lines and free-text messages are not stored."
 )
+ALERT_BANNER = (
+    "Detection findings. Each alert describes a behavior pattern in the loaded "
+    "packet and event sets. Severity is a label for review on this computer."
+)
+
+SEVERITY_COLORS = {
+    "critical": "#E15A4A",
+    "high": "#F0B429",
+    "medium": "#4C8DFF",
+    "low": "#3DDC97",
+    "informational": "#8B9BB4",
+}
 
 PROTOCOL_COLORS = {
     "TCP": "#4C8DFF",
@@ -160,6 +172,24 @@ def require_events() -> pd.DataFrame:
     return frame
 
 
+def require_rules() -> list[DetectionRule]:
+    """Return the detection rules loaded by the application entry point."""
+    rules = st.session_state.get("rules")
+    if not isinstance(rules, list) or any(not isinstance(rule, DetectionRule) for rule in rules):
+        st.error("Detection rules are not loaded. Start NetWatch from app.py.")
+        st.stop()
+    return rules
+
+
+def require_alerts() -> list[SecurityAlert]:
+    """Return the findings loaded by the application entry point."""
+    alerts = st.session_state.get("alerts")
+    if not isinstance(alerts, list) or any(not isinstance(alert, SecurityAlert) for alert in alerts):
+        st.error("Alerts are not loaded. Start NetWatch from app.py.")
+        st.stop()
+    return alerts
+
+
 def style_chart(figure: go.Figure, title: str, *, show_legend: bool = False) -> go.Figure:
     """Use the Plotly dark template with a transparent background."""
     figure.update_layout(
@@ -211,3 +241,33 @@ def display_events(frame: pd.DataFrame) -> pd.DataFrame:
         view[column] = view[column].fillna("")
     view["is_simulated"] = view["is_simulated"].map({True: "Simulated", False: "Local"})
     return view.rename(columns=_DISPLAY_NAMES)
+
+
+def display_alerts(alerts: list[SecurityAlert]) -> pd.DataFrame:
+    """Format findings for the on-screen table."""
+    headers = [
+        "Severity",
+        "Title",
+        "Rule",
+        "Source IP",
+        "Destination IP",
+        "First seen (UTC)",
+        "Last seen (UTC)",
+        "Status",
+    ]
+    if not alerts:
+        return pd.DataFrame(columns=headers)
+    rows = [
+        {
+            "Severity": alert.severity.title(),
+            "Title": alert.title,
+            "Rule": alert.rule_key,
+            "Source IP": alert.src_ip or "",
+            "Destination IP": alert.dst_ip or "",
+            "First seen (UTC)": alert.first_seen.strftime("%Y-%m-%d %H:%M:%S"),
+            "Last seen (UTC)": alert.last_seen.strftime("%Y-%m-%d %H:%M:%S"),
+            "Status": alert.status.title(),
+        }
+        for alert in alerts
+    ]
+    return pd.DataFrame(rows, columns=headers)

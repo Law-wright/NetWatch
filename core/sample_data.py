@@ -1,7 +1,9 @@
 """Deterministic fictional packet metadata for the local demonstration.
 
 Addresses come from RFC 5737 documentation networks and RFC 1918 private
-networks. The generator never reads a network interface.
+networks. The generator never reads a network interface. The full
+demonstration set also includes a short TCP SYN burst and a one-minute
+volume increase so detection rules have a pattern to describe.
 """
 
 from __future__ import annotations
@@ -22,6 +24,17 @@ SAMPLE_SEED = 42
 SAMPLE_PACKET_COUNT = 800
 SAMPLE_WINDOW = timedelta(minutes=30)
 SAMPLE_START = datetime(2026, 1, 15, 14, 0, tzinfo=timezone.utc)
+
+# Fixed bursts inside the demonstration window. Small fixtures below this
+# size stay purely random so tests can build a handful of ordinary packets.
+SCAN_SOURCE = "10.0.0.18"
+SCAN_DESTINATION = "203.0.113.80"
+SCAN_PORT_START = 2000
+SCAN_PORT_COUNT = 20
+VOLUME_SOURCE = "192.168.1.10"
+VOLUME_DESTINATION = "192.0.2.10"
+VOLUME_PACKET_COUNT = 80
+_BURST_ROWS = SCAN_PORT_COUNT + VOLUME_PACKET_COUNT
 
 SOURCE_CHOICES: tuple[tuple[str, int], ...] = (
     ("192.168.1.10", 30),
@@ -131,11 +144,55 @@ def packets_from_mappings(rows: Sequence[Mapping[str, Any]]) -> list[PacketRecor
     return records
 
 
+def _demonstration_bursts(import_id: str) -> list[dict[str, Any]]:
+    """Return the SYN burst and the volume burst for a full demonstration set."""
+    rows: list[dict[str, Any]] = []
+    volume_start = SAMPLE_START + timedelta(minutes=6)
+    for index in range(VOLUME_PACKET_COUNT):
+        rows.append(
+            {
+                "timestamp": volume_start + timedelta(milliseconds=200 * index),
+                "src_ip": VOLUME_SOURCE,
+                "dst_ip": VOLUME_DESTINATION,
+                "protocol": "TCP",
+                "src_port": 50000 + (index % 1000),
+                "dst_port": 443,
+                "packet_length": 60,
+                "ip_version": 4,
+                "tcp_flags": "ACK",
+                "import_id": import_id,
+                "is_simulated": True,
+            }
+        )
+    scan_start = SAMPLE_START + timedelta(minutes=18)
+    for index in range(SCAN_PORT_COUNT):
+        rows.append(
+            {
+                "timestamp": scan_start + timedelta(milliseconds=400 * index),
+                "src_ip": SCAN_SOURCE,
+                "dst_ip": SCAN_DESTINATION,
+                "protocol": "TCP",
+                "src_port": 52000 + index,
+                "dst_port": SCAN_PORT_START + index,
+                "packet_length": 60,
+                "ip_version": 4,
+                "tcp_flags": "SYN",
+                "import_id": import_id,
+                "is_simulated": True,
+            }
+        )
+    return rows
+
+
 def generate_packets(
     seed: int = SAMPLE_SEED,
     count: int = SAMPLE_PACKET_COUNT,
 ) -> list[PacketRecord]:
-    """Return fictional packet metadata for a fixed 30-minute UTC window."""
+    """Return fictional packet metadata for a fixed 30-minute UTC window.
+
+    Counts above the burst size reserve rows for a TCP SYN burst and a
+    one-minute volume increase. Smaller counts are only the weighted sample.
+    """
     if isinstance(seed, bool) or not isinstance(seed, int):
         raise ValueError("seed must be an integer.")
     if isinstance(count, bool) or not isinstance(count, int) or count < 1:
@@ -143,7 +200,11 @@ def generate_packets(
 
     rng = random.Random(seed)
     import_id = f"simulated-seed-{seed}"
-    mappings = [_packet_mapping(rng, import_id) for _ in range(count)]
+    if count > _BURST_ROWS:
+        mappings = [_packet_mapping(rng, import_id) for _ in range(count - _BURST_ROWS)]
+        mappings.extend(_demonstration_bursts(import_id))
+    else:
+        mappings = [_packet_mapping(rng, import_id) for _ in range(count)]
     records = packets_from_mappings(mappings)
     records.sort(key=lambda record: record.timestamp)
     if len(records) != count:
