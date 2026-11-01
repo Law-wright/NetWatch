@@ -2,9 +2,7 @@
 
 NetWatch is a Python-based network security monitoring project designed to analyze packet metadata and Windows security events through a local Streamlit dashboard. It combines simulated security telemetry, offline packet capture analysis, and SQLite persistence to support structured exploration of network and system activity.
 
-The project is being developed incrementally, with future phases introducing rule-based threat detection and investigation workflows.
-
-Built to demonstrate a local security monitoring workflow—packets plus Windows events—using Streamlit and related tooling without live capture or a lab network, and to show disciplined scoping from simulation through offline analysis and persistence before detection.
+Built to demonstrate a local security monitoring workflow—packets plus Windows events—using Streamlit and related tooling without live capture or a lab network, and to show disciplined scoping from simulation through offline analysis, persistence, detection, and investigation.
 
 ## Stack
 
@@ -23,14 +21,11 @@ Implemented now:
 - **Phase 2 — Offline PCAP analysis.** PCAP / PCAPNG / CAP upload parsed with Scapy into that same table; 50 MB upload cap and 100,000 packet cap
 - **Phase 3 — Windows events and SQLite.** Seeded fictional security events (80 rows, same window, including eight failed logons); Security Events page with filters and an events-over-time chart; optional local read of Security, System, Application, and Sysmon (missing channels and access denials reported and skipped); SQLite persistence for the active packet and event sets (`data/netwatch.db`); unit tests for the generator, record contracts, filters, capture parser, event reader, and database
 - **Phase 4 — Detection rules and alerts.** Failed authentication, possible port scanning, volume change, and user-defined watch rules. Findings are stored in the local database and shown on the Alerts page. The wording describes the pattern
-
-Not implemented yet:
-
-- **Phase 5 — Investigation and portfolio polish.** Alert status, evidence review, architecture notes, and additional investigation-scenario screenshots
+- **Phase 5 — Investigation and portfolio polish.** Alert triage (`open` / `acknowledged` / `dismissed`) on the Investigation page; related packet and event rows rebuilt from evidence references; example investigation walkthrough; architecture notes
 
 ## Screenshots
 
-Views from Phases 1–4 on the seeded fictional packet and event sets. Save PNGs under [`docs/screenshots/`](docs/screenshots/) using the filenames below. Phase 5 will add further shots for the investigation workflow.
+Views from Phases 1–5 on the seeded fictional packet and event sets. Save PNGs under [`docs/screenshots/`](docs/screenshots/) using the filenames below.
 
 ![Overview — seeded fictional metrics and packets over time](docs/screenshots/overview.png)
 
@@ -40,6 +35,10 @@ Views from Phases 1–4 on the seeded fictional packet and event sets. Save PNGs
 
 ![Alerts — seeded findings for failed logons, a SYN burst, and a volume increase](docs/screenshots/alerts.png)
 
+![Investigation — triage status and related rows for a selected finding](docs/screenshots/investigation.png)
+
+![Investigation — failed authentication evidence for demo.user](docs/screenshots/investigation-failed-auth.png)
+
 ![Sidebar — offline PCAP upload (optional)](docs/screenshots/sidebar-pcap.png)
 
 | File | Subject |
@@ -48,6 +47,8 @@ Views from Phases 1–4 on the seeded fictional packet and event sets. Save PNGs
 | `network-traffic.png` | Network Traffic filters and table |
 | `security-events.png` | Security Events, including failed logons for `demo.user` from `192.0.2.25` |
 | `alerts.png` | Alerts for the seeded failed logons, SYN burst, and volume increase |
+| `investigation.png` | Investigation filters, status control, and related rows |
+| `investigation-failed-auth.png` | Failed-authentication finding with related event rows |
 | `sidebar-pcap.png` | Sidebar offline capture upload (optional) |
 
 ## Limitations
@@ -101,7 +102,21 @@ Alerts run on the packet set and the event set that are loaded. Three rules are 
 
 Each built-in rule can be turned off, and its numbers can be changed, from the Alerts page. A watch matches packets or events on the fields you set: address, protocol, port, account, event id, and outcome. One watch produces one finding for the rows that match every field.
 
-The finding text states the counts, the window, and the addresses involved. Findings are replaced when the packet set, the event set, or the rules change. A finding that appears again keeps the status and the time it was first stored. Changing that status is part of the investigation workflow in the next phase.
+The finding text states the counts, the window, and the addresses involved. Findings are replaced when the packet set, the event set, or the rules change. A finding that appears again keeps the status and the time it was first stored.
+
+## Investigation
+
+The Investigation page filters findings by severity and status, sets triage status (`open`, `acknowledged`, or `dismissed`), and shows the evidence fields plus related packet or event rows from the sets that are loaded. Related rows are rebuilt from references in the finding (event uids, addresses, ports, time windows, watch criteria). Status changes are saved in the local database without re-running detection; a later re-detect still keeps that status when the same finding appears again.
+
+### Example investigations
+
+On the seeded fictional sets:
+
+1. **Repeated failed authentication.** Open Investigation, select the high-severity failed-authentication finding. Evidence lists eight event records for `demo.user` from `192.0.2.25`. Related events show the matching 4625 rows. Set status to `acknowledged` when you have reviewed them.
+2. **Possible port scanning.** Select the medium-severity SYN finding. Related packets show TCP SYN rows from `10.0.0.18` to `203.0.113.80` across ports 2000–2019.
+3. **Packet volume change.** Select the low-severity volume finding. Related packets are the rows inside the elevated one-minute bucket.
+
+Severity remains a review label. The page does not call a finding an intrusion.
 
 ## Requirements
 
@@ -140,7 +155,7 @@ PowerShell, from the repository root:
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-Generator, filter, parser, event, detection, and database tests call those functions directly. They build small captures in memory and do not send packets. They do not query this computer's Windows logs; the reader tests pass in XML and canned status text. Detection tests cover the seeded failed-logon burst, the SYN burst, the volume increase, and watches. Dashboard tests set `NETWATCH_DB` to a temporary file. One test runs the dashboard through Streamlit's app runner to confirm an upload replaces the fictional packet set and a file that is not a capture leaves that set in place. Another confirms Security Events can switch to a canned local read and back to the fictional log. Another opens Alerts and checks the seeded findings.
+Generator, filter, parser, event, detection, investigation, and database tests call those functions directly. They build small captures in memory and do not send packets. They do not query this computer's Windows logs; the reader tests pass in XML and canned status text. Detection tests cover the seeded failed-logon burst, the SYN burst, the volume increase, and watches. Investigation tests rebuild related rows for those findings and confirm a saved status survives re-detect. Dashboard tests set `NETWATCH_DB` to a temporary file. One test runs the dashboard through Streamlit's app runner to confirm an upload replaces the fictional packet set and a file that is not a capture leaves that set in place. Another confirms Security Events can switch to a canned local read and back to the fictional log. Others open Alerts and Investigation and check the seeded findings, including saving an acknowledged status.
 
 In the dashboard, Overview shows the full seeded set. On Network Traffic:
 
@@ -192,10 +207,10 @@ Packet metadata and Windows events both land in the local SQLite store. The Stre
                       v
               Streamlit Dashboard
                       |
-        ---------------------------------------
-        |             |             |         |
-     Overview   Network Traffic  Security   Alerts
-                                  Events
+   ------------------------------------------------
+   |          |             |          |          |
+ Overview  Network     Security    Alerts   Investigation
+           Traffic      Events
 ```
 
 ## Project layout
@@ -209,6 +224,7 @@ NetWatch/
 │   ├── packet_analyzer.py     # Offline PCAP and PCAPNG metadata
 │   ├── log_analyzer.py        # Fictional events and read-only Windows logs
 │   ├── detection_engine.py    # Failed logons, SYN port spread, volume, watches
+│   ├── investigation.py       # Related packet and event rows from evidence
 │   ├── database.py            # Local SQLite store
 │   └── filters.py             # Filter and summary functions
 ├── dashboard/
@@ -217,7 +233,8 @@ NetWatch/
 │   ├── overview.py            # Metrics and packets over time
 │   ├── network.py             # Charts, filters, and the packet table
 │   ├── security_events.py     # Event filters, chart, and local log read
-│   └── alerts.py              # Findings and rule settings
+│   ├── alerts.py              # Findings and rule settings
+│   └── investigation.py       # Alert status and evidence review
 ├── data/                      # Local database and captures (gitignored)
 ├── docs/screenshots/          # Dashboard PNGs linked from this README
 ├── tests/
@@ -227,19 +244,17 @@ NetWatch/
 └── README.md
 ```
 
-Upcoming module, not present until its phase: `dashboard/investigation.py`.
-
 ## Roadmap
 
 1. **Simulated traffic dashboard.** Done.
 2. **Offline PCAP analysis.** Done. Upload a saved capture and parse metadata with Scapy. Live capture stays off.
 3. **Windows events and SQLite.** Done. Fictional security events, an optional local log reader that handles missing channels and access denied, and a local SQLite file for the active packet and event sets.
 4. **Detection engine.** Done. Failed authentication, possible port scanning, volume change, and user-defined watch rules. Alert text describes the pattern.
-5. **Investigation and portfolio polish.** Alert status, evidence review, architecture notes, and additional investigation-scenario screenshots.
+5. **Investigation and portfolio polish.** Done. Alert triage status, evidence review with related rows, example investigations, and architecture notes.
 
 ## Technical findings and lessons learned
 
-Concrete decisions from building Phases 1–4:
+Concrete decisions from building Phases 1–5:
 
 - **Metadata only.** Scapy parses uploads for addresses, ports, protocol, length, and flags. Payload bytes, command lines, and free-text log messages stay out of the models and the SQLite schema so the demo stays safer to share and closer to a monitoring UI than a full packet dump.
 - **Streamlit CORS defaults.** In Streamlit 1.66, `server.enableCORS = false` allows every origin. NetWatch leaves CORS protection on, binds to `127.0.0.1`, and limits `allowedHosts` to localhost addresses.
@@ -247,6 +262,7 @@ Concrete decisions from building Phases 1–4:
 - **One active set per domain.** SQLite holds one packet set and one event set at a time. Upload, local log read, or a return to simulated data replaces that domain’s rows. Tests point `NETWATCH_DB` at a temporary file so they never touch the dashboard database.
 - **Fictional ranges on purpose.** Seeded addresses use RFC 5737 documentation space and RFC 1918 private ranges, with a visible data-origin banner, so the demonstration set is not mistaken for a live capture from this machine.
 - **Findings describe the pattern.** Rules count failed logons, distinct SYN ports, bucket volume, and watch matches. The stored text keeps those counts and addresses. Severity is a label for review, and the engine does not call a finding an intrusion.
+- **Evidence is a reference list.** Investigation rebuilds related rows from uids, addresses, ports, and time windows already on the finding. Status is triage on this machine; re-detect keeps it when the same `alert_uid` appears again, without treating acknowledgment as a clearance of the underlying pattern.
 
 ## License
 

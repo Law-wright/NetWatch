@@ -647,6 +647,23 @@ class NetWatchStore:
         alerts.sort(key=lambda alert: (rank.get(alert.severity, 99), -alert.last_seen.timestamp(), alert.alert_uid))
         return alerts
 
+    def update_alert_status(self, alert_uid: str, status: str) -> None:
+        """Set the triage status on one stored finding without re-running detection."""
+        if not isinstance(alert_uid, str) or not alert_uid.strip():
+            raise ValueError("Alert id is required.")
+        if status not in ALERT_STATUSES:
+            raise ValueError("Alert status is not supported.")
+        uid = alert_uid.strip()
+        self.initialize()
+        with self.connection() as connection:
+            cursor = connection.execute(
+                "UPDATE security_alerts SET status = ? WHERE alert_uid = ?",
+                (status, uid),
+            )
+            if cursor.rowcount == 0:
+                raise ValueError("That finding is not stored.")
+        logger.info("Updated alert %s status to %s", uid, status)
+
 
 def _insert_rule(
     connection: sqlite3.Connection,

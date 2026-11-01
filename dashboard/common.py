@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -28,6 +30,43 @@ ALERT_BANNER = (
     "Detection findings. Each alert describes a behavior pattern in the loaded "
     "packet and event sets. Severity is a label for review on this computer."
 )
+INVESTIGATION_BANNER = (
+    "Investigation. Status is triage on this computer only. "
+    "Related rows come from the loaded packet and event sets; "
+    "evidence holds references, not payloads."
+)
+
+EVIDENCE_LABELS = {
+    "count": "Failed logons",
+    "threshold": "Threshold",
+    "window_seconds": "Window (seconds)",
+    "event_uids": "Event records",
+    "event_uids_omitted": "Event records omitted",
+    "account_name": "Account",
+    "src_ip": "Source IP",
+    "dst_ip": "Destination IP",
+    "distinct_ports": "Distinct destination ports",
+    "packet_count": "Packets",
+    "ports": "Destination ports",
+    "ports_omitted": "Ports omitted",
+    "bucket_start": "Bucket start (UTC)",
+    "bucket_seconds": "Bucket (seconds)",
+    "baseline_median": "Baseline median",
+    "multiplier": "Multiplier",
+    "minimum_packets": "Minimum packets",
+    "subject": "Watched records",
+    "match_count": "Matching rows",
+    "criteria": "Watch fields",
+}
+_CRITERIA_LABELS = {
+    "src_ip": "source",
+    "dst_ip": "destination",
+    "protocol": "protocol",
+    "dst_port": "destination port",
+    "account_name": "account",
+    "event_id": "event id",
+    "outcome": "outcome",
+}
 
 SEVERITY_COLORS = {
     "critical": "#E15A4A",
@@ -188,6 +227,28 @@ def require_alerts() -> list[SecurityAlert]:
         st.error("Alerts are not loaded. Start NetWatch from app.py.")
         st.stop()
     return alerts
+
+
+def evidence_text(value: Any) -> str:
+    """Format one evidence value for an on-screen table cell."""
+    if isinstance(value, dict):
+        return ", ".join(
+            f"{_CRITERIA_LABELS.get(key, key)} {item}" for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value)
+    if isinstance(value, float):
+        return f"{value:g}"
+    return str(value)
+
+
+def evidence_frame(alert: SecurityAlert) -> pd.DataFrame:
+    """Turn an alert's evidence mapping into a two-column table."""
+    rows = [
+        {"Field": EVIDENCE_LABELS.get(key, key), "Value": evidence_text(alert.evidence[key])}
+        for key in alert.evidence
+    ]
+    return pd.DataFrame(rows, columns=["Field", "Value"])
 
 
 def style_chart(figure: go.Figure, title: str, *, show_legend: bool = False) -> go.Figure:

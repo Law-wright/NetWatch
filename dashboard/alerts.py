@@ -9,11 +9,12 @@ import plotly.express as px
 import streamlit as st
 
 from core.detection_engine import is_builtin, normalize_parameters
-from core.models import EVENT_OUTCOMES, PROTOCOLS, SEVERITIES, DetectionRule, SecurityAlert
+from core.models import EVENT_OUTCOMES, PROTOCOLS, SEVERITIES, DetectionRule
 from dashboard.common import (
     ALERT_BANNER,
     SEVERITY_COLORS,
     display_alerts,
+    evidence_frame,
     is_imported_capture,
     is_local_events,
     require_alerts,
@@ -21,58 +22,6 @@ from dashboard.common import (
     style_chart,
 )
 from dashboard.state import add_watch_rule, delete_watch_rule, refresh_alerts, save_detection_rule
-
-_EVIDENCE_LABELS = {
-    "count": "Failed logons",
-    "threshold": "Threshold",
-    "window_seconds": "Window (seconds)",
-    "event_uids": "Event records",
-    "event_uids_omitted": "Event records omitted",
-    "account_name": "Account",
-    "src_ip": "Source IP",
-    "dst_ip": "Destination IP",
-    "distinct_ports": "Distinct destination ports",
-    "packet_count": "Packets",
-    "ports": "Destination ports",
-    "ports_omitted": "Ports omitted",
-    "bucket_start": "Bucket start (UTC)",
-    "bucket_seconds": "Bucket (seconds)",
-    "baseline_median": "Baseline median",
-    "multiplier": "Multiplier",
-    "minimum_packets": "Minimum packets",
-    "subject": "Watched records",
-    "match_count": "Matching rows",
-    "criteria": "Watch fields",
-}
-_CRITERIA_LABELS = {
-    "src_ip": "source",
-    "dst_ip": "destination",
-    "protocol": "protocol",
-    "dst_port": "destination port",
-    "account_name": "account",
-    "event_id": "event id",
-    "outcome": "outcome",
-}
-
-
-def _evidence_text(value: Any) -> str:
-    if isinstance(value, dict):
-        return ", ".join(
-            f"{_CRITERIA_LABELS.get(key, key)} {item}" for key, item in value.items()
-        )
-    if isinstance(value, list):
-        return ", ".join(str(item) for item in value)
-    if isinstance(value, float):
-        return f"{value:g}"
-    return str(value)
-
-
-def _evidence_frame(alert: SecurityAlert) -> pd.DataFrame:
-    rows = [
-        {"Field": _EVIDENCE_LABELS.get(key, key), "Value": _evidence_text(alert.evidence[key])}
-        for key in alert.evidence
-    ]
-    return pd.DataFrame(rows, columns=["Field", "Value"])
 
 
 def _origin_caption() -> str:
@@ -278,7 +227,7 @@ else:
                 f"{alert.last_seen.strftime('%Y-%m-%d %H:%M:%S')} UTC. "
                 f"Status: {alert.status}."
             )
-            st.dataframe(_evidence_frame(alert), width="stretch", hide_index=True)
+            st.dataframe(evidence_frame(alert), width="stretch", hide_index=True)
 
 st.subheader("Built-in rules")
 st.caption("Turn a rule off or change its numbers. The rule text stays fixed.")

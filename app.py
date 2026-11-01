@@ -82,7 +82,7 @@ def _render_sidebar() -> None:
         st.caption(
             "Upload a saved PCAP or PCAPNG to inspect it here. "
             "Live capture is off. Security Events can read local Windows logs when you ask. "
-            "Alerts runs the detection rules on the loaded sets."
+            "Alerts runs the detection rules. Investigation sets status and reviews evidence."
         )
         generation = int(st.session_state.get("upload_generation", 0))
         upload = st.file_uploader(
@@ -144,6 +144,7 @@ def main() -> None:
         st.Page("dashboard/network.py", title="Network Traffic"),
         st.Page("dashboard/security_events.py", title="Security Events"),
         st.Page("dashboard/alerts.py", title="Alerts"),
+        st.Page("dashboard/investigation.py", title="Investigation"),
     ]
     st.navigation(pages).run()
 

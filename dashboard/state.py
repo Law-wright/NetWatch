@@ -94,6 +94,13 @@ def delete_watch_rule(rule_key: str) -> None:
     refresh_alerts()
 
 
+def set_alert_status(alert_uid: str, status: str) -> None:
+    """Persist a triage status and reload findings without re-running detection."""
+    store = _store()
+    store.update_alert_status(alert_uid, status)
+    st.session_state.alerts = store.load_alerts()
+
+
 def use_simulated_packets() -> None:
     """Replace the session and the database with the seeded fictional packets."""
     frame = generate_packet_frame()
