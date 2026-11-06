@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from core.detection_engine import technique_for
 from core.investigation import related_evidence
 from core.models import ALERT_STATUSES, SEVERITIES, SecurityAlert
 from dashboard.common import (
@@ -100,6 +101,11 @@ alert = by_label[selected_label]
 
 st.subheader(alert.title)
 st.write(alert.description)
+technique = technique_for(alert.rule_key)
+if technique is not None:
+    st.caption(
+        f"Consistent with [{technique.label}]({technique.url}), {technique.tactic}."
+    )
 st.caption(
     f"Rule `{alert.rule_key}`. "
     f"{alert.first_seen.strftime('%Y-%m-%d %H:%M:%S')} to "

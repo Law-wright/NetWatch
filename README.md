@@ -20,7 +20,7 @@ Implemented now:
 - **Phase 1 — Simulated traffic dashboard.** Seeded fictional packet metadata (800 rows, fixed 30-minute UTC window, including a TCP SYN burst and a one-minute volume increase); Overview metrics and packets-over-time; protocol, top address, and port charts; filters for IP, protocol, port, and time; metadata table with a data-origin label
 - **Phase 2 — Offline PCAP analysis.** PCAP / PCAPNG / CAP upload parsed with Scapy into that same table; 50 MB upload cap and 100,000 packet cap
 - **Phase 3 — Windows events and SQLite.** Seeded fictional security events (80 rows, same window, including eight failed logons); Security Events page with filters and an events-over-time chart; optional local read of Security, System, Application, and Sysmon (missing channels and access denials reported and skipped); SQLite persistence for the active packet and event sets (`data/netwatch.db`); unit tests for the generator, record contracts, filters, capture parser, event reader, and database
-- **Phase 4 — Detection rules and alerts.** Failed authentication, possible port scanning, volume change, and user-defined watch rules. Findings are stored in the local database and shown on the Alerts page. The wording describes the pattern
+- **Phase 4 — Detection rules and alerts.** Failed authentication, possible port scanning, volume change, and user-defined watch rules. Failed authentication and possible port scanning name a MITRE ATT&CK technique as review context. Findings are stored in the local database and shown on the Alerts page. The wording describes the pattern
 - **Phase 5 — Investigation and portfolio polish.** Alert triage (`open` / `acknowledged` / `dismissed`) on the Investigation page; related packet and event rows rebuilt from evidence references; example investigation walkthrough; architecture notes
 
 ## Screenshots
@@ -100,7 +100,13 @@ Alerts run on the packet set and the event set that are loaded. Three rules are 
 - **Possible port scanning.** TCP SYN packets from one source to many destination ports on one host. The default is 15 distinct ports in 60 seconds. The fictional packet set includes the SYN burst described above.
 - **Packet volume change.** A time bucket whose packet count is at least 3 times the median of the other buckets, and at least 40 packets. The fictional packet set includes the one-minute increase described above.
 
-Each built-in rule can be turned off, and its numbers can be changed, from the Alerts page. A watch matches packets or events on the fields you set: address, protocol, port, account, event id, and outcome. One watch produces one finding for the rows that match every field.
+Two of those rules name a MITRE ATT&CK technique as review context for the pattern. The id is not stored on the finding, and it is not a coverage claim.
+
+- **Repeated failed authentication** is consistent with [T1110.001 Password Guessing](https://attack.mitre.org/techniques/T1110/001/) (Credential Access).
+- **Possible port scanning** is consistent with [T1046 Network Service Discovery](https://attack.mitre.org/techniques/T1046/) (Discovery).
+- **Packet volume change** has no technique. A larger time bucket is not one ATT&CK technique.
+
+Each built-in rule can be turned off, and its numbers can be changed, from the Alerts page. A watch matches packets or events on the fields you set: address, protocol, port, account, event id, and outcome. One watch produces one finding for the rows that match every field. Watches are unmapped.
 
 The finding text states the counts, the window, and the addresses involved. Findings are replaced when the packet set, the event set, or the rules change. A finding that appears again keeps the status and the time it was first stored.
 
@@ -112,9 +118,9 @@ The Investigation page filters findings by severity and status, sets triage stat
 
 On the seeded fictional sets:
 
-1. **Repeated failed authentication.** Open Investigation, select the high-severity failed-authentication finding. Evidence lists eight event records for `demo.user` from `192.0.2.25`. Related events show the matching 4625 rows. Set status to `acknowledged` when you have reviewed them.
-2. **Possible port scanning.** Select the medium-severity SYN finding. Related packets show TCP SYN rows from `10.0.0.18` to `203.0.113.80` across ports 2000–2019.
-3. **Packet volume change.** Select the low-severity volume finding. Related packets are the rows inside the elevated one-minute bucket.
+1. **Repeated failed authentication.** Open Investigation, select the high-severity failed-authentication finding. The page names T1110.001 Password Guessing as context. Evidence lists eight event records for `demo.user` from `192.0.2.25`. Related events show the matching 4625 rows. Set status to `acknowledged` when you have reviewed them.
+2. **Possible port scanning.** Select the medium-severity SYN finding. The page names T1046 Network Service Discovery as context. Related packets show TCP SYN rows from `10.0.0.18` to `203.0.113.80` across ports 2000–2019.
+3. **Packet volume change.** Select the low-severity volume finding. It has no technique id. Related packets are the rows inside the elevated one-minute bucket.
 
 Severity remains a review label. The page does not call a finding an intrusion.
 
@@ -249,7 +255,7 @@ NetWatch/
 1. **Simulated traffic dashboard.** Done.
 2. **Offline PCAP analysis.** Done. Upload a saved capture and parse metadata with Scapy. Live capture stays off.
 3. **Windows events and SQLite.** Done. Fictional security events, an optional local log reader that handles missing channels and access denied, and a local SQLite file for the active packet and event sets.
-4. **Detection engine.** Done. Failed authentication, possible port scanning, volume change, and user-defined watch rules. Alert text describes the pattern.
+4. **Detection engine.** Done. Failed authentication, possible port scanning, volume change, and user-defined watch rules. Failed authentication and possible port scanning name an ATT&CK technique as review context. Alert text describes the pattern.
 5. **Investigation and portfolio polish.** Done. Alert triage status, evidence review with related rows, example investigations, and architecture notes.
 
 ## Technical findings and lessons learned
@@ -261,7 +267,7 @@ Concrete decisions from building Phases 1–5:
 - **Windows log access is uneven.** `wevtutil` is read-only here, but the Security channel often denies non-elevated readers and Sysmon may be absent. Reporting and skipping those channels is more honest than treating a partial read as a full local picture.
 - **One active set per domain.** SQLite holds one packet set and one event set at a time. Upload, local log read, or a return to simulated data replaces that domain’s rows. Tests point `NETWATCH_DB` at a temporary file so they never touch the dashboard database.
 - **Fictional ranges on purpose.** Seeded addresses use RFC 5737 documentation space and RFC 1918 private ranges, with a visible data-origin banner, so the demonstration set is not mistaken for a live capture from this machine.
-- **Findings describe the pattern.** Rules count failed logons, distinct SYN ports, bucket volume, and watch matches. The stored text keeps those counts and addresses. Severity is a label for review, and the engine does not call a finding an intrusion.
+- **Findings describe the pattern.** Rules count failed logons, distinct SYN ports, bucket volume, and watch matches. The stored text keeps those counts and addresses. Severity is a label for review, and the engine does not call a finding an intrusion. Failed authentication and port scanning also name an ATT&CK technique (T1110.001 and T1046) as context for that pattern. Volume change and watches stay unmapped.
 - **Evidence is a reference list.** Investigation rebuilds related rows from uids, addresses, ports, and time windows already on the finding. Status is triage on this machine; re-detect keeps it when the same `alert_uid` appears again, without treating acknowledgment as a clearance of the underlying pattern.
 
 ## License

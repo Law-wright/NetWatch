@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from core.detection_engine import technique_label
 from core.models import PACKET_COLUMNS, DetectionRule, SecurityAlert
 
 SIMULATED_BANNER = (
@@ -310,6 +311,7 @@ def display_alerts(alerts: list[SecurityAlert]) -> pd.DataFrame:
         "Severity",
         "Title",
         "Rule",
+        "Technique",
         "Source IP",
         "Destination IP",
         "First seen (UTC)",
@@ -323,6 +325,7 @@ def display_alerts(alerts: list[SecurityAlert]) -> pd.DataFrame:
             "Severity": alert.severity.title(),
             "Title": alert.title,
             "Rule": alert.rule_key,
+            "Technique": technique_label(alert.rule_key),
             "Source IP": alert.src_ip or "",
             "Destination IP": alert.dst_ip or "",
             "First seen (UTC)": alert.first_seen.strftime("%Y-%m-%d %H:%M:%S"),

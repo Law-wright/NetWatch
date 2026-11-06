@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from core.detection_engine import is_builtin, normalize_parameters
+from core.detection_engine import is_builtin, normalize_parameters, technique_for
 from core.models import EVENT_OUTCOMES, PROTOCOLS, SEVERITIES, DetectionRule
 from dashboard.common import (
     ALERT_BANNER,
@@ -22,6 +22,15 @@ from dashboard.common import (
     style_chart,
 )
 from dashboard.state import add_watch_rule, delete_watch_rule, refresh_alerts, save_detection_rule
+
+
+def _technique_note(rule_key: str) -> str | None:
+    technique = technique_for(rule_key)
+    if technique is None:
+        return None
+    return (
+        f"Consistent with [{technique.label}]({technique.url}), {technique.tactic}."
+    )
 
 
 def _origin_caption() -> str:
@@ -222,6 +231,9 @@ else:
     for alert in alerts:
         with st.expander(f"{alert.severity.title()} — {alert.title}"):
             st.write(alert.description)
+            note = _technique_note(alert.rule_key)
+            if note:
+                st.caption(note)
             st.caption(
                 f"{alert.first_seen.strftime('%Y-%m-%d %H:%M:%S')} to "
                 f"{alert.last_seen.strftime('%Y-%m-%d %H:%M:%S')} UTC. "
@@ -237,6 +249,11 @@ for rule in rules:
     label = "on" if rule.enabled else "off"
     with st.expander(f"{rule.name} ({label})"):
         st.caption(rule.description)
+        note = _technique_note(rule.rule_key)
+        if note:
+            st.caption(note)
+        else:
+            st.caption("No ATT&CK technique is assigned to this rule.")
         _builtin_editor(rule)
 
 st.subheader("Watch rules")

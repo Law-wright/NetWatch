@@ -176,6 +176,7 @@ def test_investigation_page_reviews_evidence_and_saves_status(
             visible += "\n" + str(value)
     assert "Investigation." in visible
     assert "Repeated failed authentication" in visible
+    assert "T1110.001 Password Guessing" in visible
     assert FAILED_BURST_ACCOUNT in visible or "Failed logon" in visible
 
     status_box = next(widget for widget in app.selectbox if widget.label == "Triage status")

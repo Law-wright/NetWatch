@@ -14,6 +14,7 @@ import logging
 import statistics
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -68,9 +69,57 @@ DEFAULT_RULES: tuple[DetectionRule, ...] = (
 )
 
 
+@dataclass(frozen=True)
+class AttackTechnique:
+    """A MITRE ATT&CK technique a built-in rule resembles.
+
+    The id is review context for the pattern. It is not a verdict, and it is
+    not a claim that NetWatch covers the technique.
+    """
+
+    technique_id: str
+    name: str
+    tactic: str
+    url: str
+
+    @property
+    def label(self) -> str:
+        return f"{self.technique_id} {self.name}"
+
+
+# Volume change stays unmapped: a larger bucket is not one technique.
+_ATTACK_TECHNIQUES: dict[str, AttackTechnique] = {
+    "failed_auth": AttackTechnique(
+        technique_id="T1110.001",
+        name="Password Guessing",
+        tactic="Credential Access",
+        url="https://attack.mitre.org/techniques/T1110/001/",
+    ),
+    "possible_port_scan": AttackTechnique(
+        technique_id="T1046",
+        name="Network Service Discovery",
+        tactic="Discovery",
+        url="https://attack.mitre.org/techniques/T1046/",
+    ),
+}
+
+
 def default_rules() -> tuple[DetectionRule, ...]:
     """Return the rules installed into a new database."""
     return DEFAULT_RULES
+
+
+def technique_for(rule_key: str) -> AttackTechnique | None:
+    """Return the ATT&CK technique for a built-in rule, or None when unmapped."""
+    return _ATTACK_TECHNIQUES.get(rule_key)
+
+
+def technique_label(rule_key: str) -> str:
+    """Return ``Txxxx Name`` for a mapped rule, or an empty string."""
+    technique = technique_for(rule_key)
+    if technique is None:
+        return ""
+    return technique.label
 
 
 def is_builtin(rule_key: str) -> bool:

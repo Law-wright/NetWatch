@@ -15,7 +15,9 @@ from core.detection_engine import (
     evaluate,
     next_watch_key,
     normalize_parameters,
+    technique_for,
 )
+from dashboard.common import display_alerts
 from core.log_analyzer import (
     FAILED_BURST_ACCOUNT,
     FAILED_BURST_COUNT,
@@ -142,6 +144,34 @@ def test_seeded_sets_raise_three_builtin_findings() -> None:
 
     again = _findings(generate_packet_frame(), generate_event_frame(), list(default_rules()))
     assert [alert.alert_uid for alert in again] == [alert.alert_uid for alert in alerts]
+
+    shown = display_alerts(alerts)
+    by_rule_label = dict(zip(shown["Rule"], shown["Technique"], strict=True))
+    assert by_rule_label["failed_auth"] == "T1110.001 Password Guessing"
+    assert by_rule_label["possible_port_scan"] == "T1046 Network Service Discovery"
+    assert by_rule_label["volume_change"] == ""
+    for alert in alerts:
+        assert "T1110" not in alert.description
+        assert "T1046" not in alert.description
+
+
+def test_attack_techniques_cover_two_builtin_rules() -> None:
+    failed = technique_for("failed_auth")
+    assert failed is not None
+    assert failed.technique_id == "T1110.001"
+    assert failed.name == "Password Guessing"
+    assert failed.tactic == "Credential Access"
+    assert failed.url.endswith("/T1110/001/")
+
+    scan = technique_for("possible_port_scan")
+    assert scan is not None
+    assert scan.technique_id == "T1046"
+    assert scan.name == "Network Service Discovery"
+    assert scan.tactic == "Discovery"
+    assert scan.label == "T1046 Network Service Discovery"
+
+    assert technique_for("volume_change") is None
+    assert technique_for("watch_001") is None
 
 
 def test_failed_authentication_uses_a_window_and_ignores_success() -> None:
@@ -435,6 +465,9 @@ def test_alerts_page_lists_seeded_findings(tmp_path: Path, monkeypatch: pytest.M
     assert "Repeated failed authentication" in visible
     assert "Possible port scanning" in visible
     assert "Packet volume change" in visible
+    assert "T1110.001 Password Guessing" in visible
+    assert "T1046 Network Service Discovery" in visible
+    assert "No ATT&CK technique is assigned to this rule." in visible
 
     next(widget for widget in app.text_input if widget.label == "Name").set_value("Port 22 watch")
     next(widget for widget in app.text_input if widget.label == "Destination port").set_value("22")
