@@ -246,6 +246,7 @@ NetWatch/
 ├── tests/
 ├── .streamlit/config.toml     # Loopback bind, dark theme, upload cap
 ├── requirements.txt
+├── THREAT_MODEL.md            # STRIDE notes and detection coverage
 ├── LICENSE
 └── README.md
 ```
