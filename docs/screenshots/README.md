@@ -1,6 +1,6 @@
 # Screenshots
 
-Save dashboard PNGs here for the README. Prefer the seeded fictional dataset and say so in captions.
+Dashboard PNGs linked from the root README. Captures use the seeded fictional packet and event sets unless a caption says otherwise.
 
 | File | Subject |
 | --- | --- |
@@ -11,5 +11,3 @@ Save dashboard PNGs here for the README. Prefer the seeded fictional dataset and
 | `investigation.png` | Investigation filters, status control, and related rows |
 | `investigation-failed-auth.png` | Failed-authentication finding with related event rows |
 | `sidebar-pcap.png` | Sidebar offline capture upload (optional) |
-
-Filenames match the links in the root README Screenshots section.

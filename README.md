@@ -20,12 +20,12 @@ Implemented now:
 - **Phase 1 — Simulated traffic dashboard.** Seeded fictional packet metadata (800 rows, fixed 30-minute UTC window, including a TCP SYN burst and a one-minute volume increase); Overview metrics and packets-over-time; protocol, top address, and port charts; filters for IP, protocol, port, and time; metadata table with a data-origin label
 - **Phase 2 — Offline PCAP analysis.** PCAP / PCAPNG / CAP upload parsed with Scapy into that same table; 50 MB upload cap and 100,000 packet cap
 - **Phase 3 — Windows events and SQLite.** Seeded fictional security events (80 rows, same window, including eight failed logons); Security Events page with filters and an events-over-time chart; optional local read of Security, System, Application, and Sysmon (missing channels and access denials reported and skipped); SQLite persistence for the active packet and event sets (`data/netwatch.db`); unit tests for the generator, record contracts, filters, capture parser, event reader, and database
-- **Phase 4 — Detection rules and alerts.** Failed authentication, possible port scanning, volume change, and user-defined watch rules. Failed authentication and possible port scanning name a MITRE ATT&CK technique as review context. Findings are stored in the local database and shown on the Alerts page. The wording describes the pattern
-- **Phase 5 — Investigation and portfolio polish.** Alert triage (`open` / `acknowledged` / `dismissed`) on the Investigation page; related packet and event rows rebuilt from evidence references; example investigation walkthrough; architecture notes
+- **Phase 4 — Detection rules and alerts.** Failed authentication, possible port scanning, volume change, and user-defined watch rules. Failed authentication and possible port scanning name a MITRE ATT&CK technique as review context. Findings are stored in the local database and shown on the Alerts page. The wording describes the pattern.
+- **Phase 5 — Investigation and portfolio polish.** Alert triage (`open` / `acknowledged` / `dismissed`) on the Investigation page; related packet and event rows rebuilt from evidence references; example investigation walkthrough; architecture notes; [THREAT_MODEL.md](THREAT_MODEL.md)
 
 ## Screenshots
 
-Views from Phases 1–5 on the seeded fictional packet and event sets. Save PNGs under [`docs/screenshots/`](docs/screenshots/) using the filenames below.
+Views from Phases 1–5 on the seeded fictional packet and event sets ([`docs/screenshots/`](docs/screenshots/)).
 
 ![Overview — seeded fictional metrics and packets over time](docs/screenshots/overview.png)
 
@@ -61,6 +61,7 @@ NetWatch is a portfolio and learning project, not a production IDS. Scope stays 
 - Dashboard binds to `127.0.0.1` only; do not expose it to the internet
 - One active packet set and one active event set at a time
 - Detection findings describe patterns in the stored metadata. Severity is a review label
+- ATT&CK technique labels on failed authentication and port scanning are review context, not coverage claims
 - Upload capped at 50 MB; at most 100,000 acceptable packets kept
 - Local Windows log read needs appropriate rights; missing channels (for example Sysmon) are skipped
 
@@ -88,7 +89,7 @@ For events it keeps, NetWatch stores time, channel, provider, event id, account,
 
 ## Local database
 
-The active packet set and the active event set are stored in `data/netwatch.db`. That file is gitignored. Restarting the dashboard loads it. An upload, a local log read, or a return to simulated data replaces the rows it owns.
+The active packet set, event set, detection rules, and findings (including triage status) are stored in `data/netwatch.db`. That file is gitignored. Restarting the dashboard loads it. An upload, a local log read, or a return to simulated data replaces the packet or event rows it owns. Findings are replaced when the loaded sets or rules change; a finding that appears again keeps its status and first-seen time.
 
 Tests set `NETWATCH_DB` to a temporary file so they do not use the dashboard database.
 
@@ -161,7 +162,7 @@ PowerShell, from the repository root:
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-Generator, filter, parser, event, detection, investigation, and database tests call those functions directly. They build small captures in memory and do not send packets. They do not query this computer's Windows logs; the reader tests pass in XML and canned status text. Detection tests cover the seeded failed-logon burst, the SYN burst, the volume increase, and watches. Investigation tests rebuild related rows for those findings and confirm a saved status survives re-detect. Dashboard tests set `NETWATCH_DB` to a temporary file. One test runs the dashboard through Streamlit's app runner to confirm an upload replaces the fictional packet set and a file that is not a capture leaves that set in place. Another confirms Security Events can switch to a canned local read and back to the fictional log. Others open Alerts and Investigation and check the seeded findings, including saving an acknowledged status.
+Generator, filter, parser, event, detection, investigation, and database tests call those functions directly. They build small captures in memory and do not send packets. They do not query this computer's Windows logs; the reader tests pass in XML and canned status text. Detection tests cover the seeded failed-logon burst, the SYN burst, the volume increase, watches, and ATT&CK technique labels for failed authentication and port scanning. Investigation tests rebuild related rows for those findings and confirm a saved status survives re-detect. Dashboard tests set `NETWATCH_DB` to a temporary file. One test runs the dashboard through Streamlit's app runner to confirm an upload replaces the fictional packet set and a file that is not a capture leaves that set in place. Another confirms Security Events can switch to a canned local read and back to the fictional log. Others open Alerts and Investigation and check the seeded findings, including saving an acknowledged status.
 
 In the dashboard, Overview shows the full seeded set. On Network Traffic:
 
@@ -179,7 +180,7 @@ A file that is not a PCAP or PCAPNG leaves the current packet table in place and
 
 ## Architecture
 
-Packet metadata and Windows events both land in the local SQLite store. The Streamlit dashboard reads that store.
+Packet metadata and Windows events land in the local SQLite store. The detection engine raises findings from that store. The Streamlit dashboard reads packets, events, rules, and findings.
 
 ```text
                    NETWATCH
@@ -229,7 +230,7 @@ NetWatch/
 │   ├── sample_data.py         # Seeded fictional traffic
 │   ├── packet_analyzer.py     # Offline PCAP and PCAPNG metadata
 │   ├── log_analyzer.py        # Fictional events and read-only Windows logs
-│   ├── detection_engine.py    # Failed logons, SYN port spread, volume, watches
+│   ├── detection_engine.py    # Failed logons, SYN port spread, volume, watches; ATT&CK labels
 │   ├── investigation.py       # Related packet and event rows from evidence
 │   ├── database.py            # Local SQLite store
 │   └── filters.py             # Filter and summary functions
@@ -257,7 +258,7 @@ NetWatch/
 2. **Offline PCAP analysis.** Done. Upload a saved capture and parse metadata with Scapy. Live capture stays off.
 3. **Windows events and SQLite.** Done. Fictional security events, an optional local log reader that handles missing channels and access denied, and a local SQLite file for the active packet and event sets.
 4. **Detection engine.** Done. Failed authentication, possible port scanning, volume change, and user-defined watch rules. Failed authentication and possible port scanning name an ATT&CK technique as review context. Alert text describes the pattern.
-5. **Investigation and portfolio polish.** Done. Alert triage status, evidence review with related rows, example investigations, and architecture notes.
+5. **Investigation and portfolio polish.** Done. Alert triage status, evidence review with related rows, example investigations, architecture notes, and a local threat model.
 
 ## Technical findings and lessons learned
 
